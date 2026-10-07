@@ -1,0 +1,12 @@
+{
+  "name": "@nexus/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wire types for the Nexus REST API and gateway (mirror of services/server/src/models.rs)",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  }
+}

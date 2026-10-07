@@ -1,0 +1,19 @@
+{
+  "name": "nexus-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/protocol",
+    "packages/shared",
+    "packages/ui",
+    "apps/desktop"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "desktop:dev": "npm run tauri dev --workspace @nexus/desktop",
+    "desktop:build": "npm run tauri build --workspace @nexus/desktop"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
