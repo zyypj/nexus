@@ -1,0 +1,27 @@
+[workspace]
+resolver = "3"
+members = [
+    "services/server",
+]
+# The Tauri crate is Windows-only and has its own lockfile/target so the
+# server workspace can be built and tested on Linux CI without WebView deps.
+exclude = ["apps/desktop/src-tauri"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+publish = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.dev]
+# Full debug info makes Windows PDBs huge; line tables keep backtraces useful.
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+# Argon2 and RNNoise are painfully slow unoptimized; tests stay fast this way.
+opt-level = 2
