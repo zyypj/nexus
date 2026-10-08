@@ -3,5 +3,34 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": {}
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nexus/protocol": "0.1.0",
+    "@nexus/shared": "0.1.0",
+    "@nexus/ui": "0.1.0",
+    "@sapphi-red/web-noise-suppressor": "^0.4.1",
+    "@tanstack/react-virtual": "^3.14.13",
+    "@tauri-apps/api": "^2.12.1",
+    "@tauri-apps/plugin-notification": "^2.5.1",
+    "@tauri-apps/plugin-opener": "^2.7.0",
+    "livekit-client": "^2.22.3",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.1",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.3"
+  }
 }
