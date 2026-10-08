@@ -4,10 +4,14 @@
 
 ## Fase atual
 
-Fases 1–9 implementadas e testadas no Windows; **fase 10 (Android) em andamento** (projeto
-React Native gerado, dependências instaladas, telas e módulos Kotlin ainda não escritos).
-Fases 13 (Pterodactyl) e 14 (benchmarks) adiantadas: eggs/Dockerfiles prontos (não testados
-num painel real) e benchmarks do Windows medidos.
+Todas as fases têm código. Windows (1–9) testado na prática; **Android (10–12) implementado e
+compilando (APK debug e release gerados), mas ainda não executado num aparelho/emulador**.
+Pterodactyl (13): eggs/Dockerfiles prontos, não testados num painel real. Benchmarks (14):
+Windows medido.
+
+Artefatos desta sessão: `D:\nexus-build\dist\Nexus_0.1.0_x64-setup.exe` (2 MB) e
+`D:\nexus-build\dist\Nexus-0.1.0-android.apk` (52 MB, arm64 + armv7, assinado com a chave de
+debug).
 
 | Fase | Estado |
 |---|---|
@@ -20,9 +24,9 @@ num painel real) e benchmarks do Windows medidos.
 | 7 Screen share Windows | ⚠️ implementado (getDisplayMedia/WGC + governador de qualidade com testes); **não testado ponta a ponta com o seletor** |
 | 8 Áudio do PC sem o áudio da call | ✅ captura nativa verificada em hardware (`loopback_probe` 3/3); ⚠️ publicação via LiveKit dentro do app ainda não exercitada ponta a ponta |
 | 9 Supressão de ruído | ✅ Padrão (WebRTC) + Avançado (RNNoise) implementados; RNNoise medido (tabela em docs/AUDIO.md) |
-| 10 Android app | 🚧 scaffold RN 0.87 + deps (LiveKit RN, keychain); falta UI e Kotlin |
-| 11 Call Android | ⏳ |
-| 12 Screen share Android | ⏳ |
+| 10 Android app | ✅ compila (RN 0.87 + Kotlin): login, conversas, amigos, chat (anexos, reações, respostas, edição), notificações locais, token no Keystore; typecheck + jest ok; ⚠️ não executado em aparelho |
+| 11 Call Android | ✅ compila: LiveKit RN, mute/deafen, volume 0–200%, câmera, serviço em primeiro plano; ⚠️ não executado |
+| 12 Screen share Android | ✅ compila: MediaProjection + AudioPlaybackCapture (reusa a projeção do vídeo; `getMediaProjection()` confirmado no AAR do WebRTC), aviso de app que bloqueia captura; ⚠️ não executado |
 | 13 Pterodactyl | ⚠️ eggs + Dockerfiles + entrypoints escritos; geração do livekit.yaml testada; imagens Docker **não construídas** (Docker Desktop parado / pouco espaço no C:) |
 | 14 Benchmarks/otimizações | ✅ Windows medido; otimizações aplicadas com antes/depois |
 
@@ -44,6 +48,11 @@ selecionáveis), push-to-talk e atalhos globais (hooks de baixo nível), screen 
 qualidade automática, áudio do PC por process loopback, RNNoise, token no Credential Manager.
 
 ## Problemas conhecidos / não verificado
+
+- **Android nunca rodou num aparelho/emulador**. Primeiro passo da próxima sessão: instalar o
+  APK num celular e testar login → chat → call → tela + áudio.
+- Hotkeys globais e screen share no Windows não foram testados interativamente (o usuário estava
+  usando o PC; evitei controlar a tela).
 
 - Screen share de vídeo ainda não exercitado com o seletor do WebView2 (precisa interação manual).
 - Áudio do PC: módulo nativo verificado; o caminho completo (Channel → AudioWorklet → LiveKit)
@@ -67,6 +76,11 @@ qualidade automática, áudio do PC por process loopback, RNNoise, token no Cred
   - Android: `D:\nexus-build\android\jdk17` (JAVA_HOME), `D:\nexus-build\android\sdk`
     (ANDROID_HOME; platform 36/37.0, build-tools 37, NDK 27.1.12297006, CMake 3.22.1).
     Use `GRADLE_USER_HOME=D:/nexus-build/gradle`.
+  - As pastas de build do Android (`apps/android/android/app/build`, `app/.cxx` e
+    `node_modules/*/android/build`) são **junções** para `D:\nexus-build\android-out` (só nesta
+    máquina; o build intermediário passa de 2 GB). Redirecionar via `buildDirectory` não
+    funciona: o codegen do React Native quebra com caminhos em outro drive. Se apagar
+    `node_modules`, recrie as junções com `mklink /J`.
   - LiveKit local: `D:\nexus-build\tools\livekit\livekit-server.exe`, CLI `D:\nexus-build\tools\lk\lk.exe`.
 - Rust 1.99 (rustup), Node 24, VS 18 Build Tools + Windows SDK 26100 instalados nesta sessão.
 - Dados de dev: `D:/nexus-build/devdata` (usuários do seed: joao, pedro, lucas, carlos, marcos /
@@ -89,6 +103,10 @@ python scripts/dev-seed.py
 
 # TypeScript
 npm run typecheck ; npm test
+
+# android (JAVA_HOME/ANDROID_HOME/GRADLE_USER_HOME no D:)
+cd apps/android && npm run typecheck && npx jest
+cd apps/android/android && ./gradlew assembleRelease --no-daemon
 
 # desktop
 cd apps/desktop && CARGO_TARGET_DIR=D:/nexus-build/target-desktop npx tauri build
@@ -122,10 +140,9 @@ docs/                            ARCHITECTURE, WINDOWS, ANDROID, AUDIO, SCREEN_S
 
 ## Próximas tarefas
 
-1. Android: UI (login, conversas, chat, amigos, call), `NexusClient` compartilhado,
-   token no Keystore, LiveKit RN, serviço em primeiro plano Kotlin para call/screen share,
-   MediaProjection + AudioPlaybackCapture (Kotlin), aviso quando o app capturado bloqueia áudio.
-2. Compilar APK localmente (JDK 17 + SDK em D:) e ajustar o CI do Android.
+1. Rodar o APK num celular real: login, chat, call (voz/vídeo), tela + áudio do aparelho, aviso
+   de app bloqueado; corrigir o que aparecer.
+2. APKs por ABI (`splits.abi`) para reduzir de 52 MB para ~27 MB cada.
 3. Testar screen share de vídeo + áudio do PC ponta a ponta no Windows.
 4. Testar hotkeys/PTT com o app minimizado.
 5. Construir imagens Docker e validar os eggs num Pterodactyl real.
