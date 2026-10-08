@@ -93,7 +93,7 @@ jobs:
             package-lock.json
             apps/android/package-lock.json
       - run: npm ci  # root workspace: deps used when type-checking packages/*
-      - name: Install (Android app has its own npm project; shared packages are file: links)
+      - name: "Install (the Android app has its own npm project; shared packages are file links)"
         working-directory: apps/android
         run: npm ci
       - working-directory: apps/android
