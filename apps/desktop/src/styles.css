@@ -1472,3 +1472,49 @@ video.mirror {
   background: var(--c-accent);
   transition: width 0.15s linear;
 }
+
+/* ---------- mandatory update gate ---------- */
+.update-gate {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding: var(--space-xl);
+  text-align: center;
+  background: radial-gradient(circle at 30% 20%, #16303a 0, var(--c-bg) 60%);
+}
+.update-gate h1 {
+  margin: 0;
+  font-size: var(--fs-xl);
+}
+.update-gate p {
+  margin: 0;
+  color: var(--c-text-muted);
+}
+.update-gate-logo {
+  width: 72px;
+  height: 72px;
+}
+.update-gate-bar {
+  width: min(360px, 80%);
+}
+.update-gate-error {
+  color: var(--c-text-muted);
+  max-width: 480px;
+  overflow-wrap: anywhere;
+}
+.update-gate-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--c-surface-hover);
+  border-top-color: var(--c-accent);
+  animation: update-spin 0.8s linear infinite;
+}
+@keyframes update-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

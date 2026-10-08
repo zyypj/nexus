@@ -1,15 +1,21 @@
 import { totalUnread } from "@nexus/shared";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { calls, useCall } from "./call/callStore";
 import { createClient, useNexus, useSession } from "./lib/nexus";
 import { invoke, isTauri, setBadge } from "./lib/platform";
 import { useSettings } from "./lib/settings";
-import { startUpdateChecks } from "./lib/updater";
+import { startUpdateChecks, startupUpdate } from "./lib/updater";
 import { AppShell } from "./views/AppShell";
 import { LoginView } from "./views/LoginView";
+import { UpdateGate } from "./views/UpdateGate";
 
 export function App() {
   const phase = useSession((s) => s.phase);
+  // Mandatory update before anything else is shown (no-op outside Tauri).
+  const [gateOpen, setGateOpen] = useState(!isTauri);
+  useEffect(() => {
+    void startupUpdate().then(() => setGateOpen(true));
+  }, []);
 
   useEffect(() => {
     const url = useSettings.getState().serverUrl;
@@ -25,7 +31,7 @@ export function App() {
 
   // Time-to-interactive for the benchmark tool: first frame after the
   // session was restored (or the login screen is shown).
-  const booted = phase !== "boot";
+  const booted = phase !== "boot" && gateOpen;
   useEffect(() => {
     if (!booted || !isTauri) return;
     requestAnimationFrame(() => setTimeout(() => void invoke("app_ready").catch(() => undefined), 0));
@@ -48,6 +54,7 @@ export function App() {
     if (phase === "app") startUpdateChecks();
   }, [phase]);
 
+  if (!gateOpen) return <UpdateGate />;
   if (phase === "boot") return <div className="splash" />;
   if (phase === "login") return <LoginView />;
   return (

@@ -1,17 +1,18 @@
 import type { Id } from '@nexus/protocol';
 import React, { useEffect, useState } from 'react';
-import { BackHandler, PermissionsAndroid, Platform, StatusBar, View } from 'react-native';
+import { AppState, BackHandler, PermissionsAndroid, Platform, StatusBar, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { calls, useCall } from './call/callManager';
 import { createClient, savedServerUrl, useNexus, useSession } from './lib/nexus';
 import { loadSoundPrefs } from './lib/sounds';
-import { startUpdateChecks } from './lib/updater';
+import { checkForUpdate, startUpdateChecks, startupCheck, useUpdate } from './lib/updater';
 import { CallScreen } from './screens/CallScreen';
 import { ChatScreen } from './screens/ChatScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { IncomingCall } from './screens/IncomingCall';
 import { LoginScreen } from './screens/LoginScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { UpdateRequired } from './screens/UpdateRequired';
 import { colors } from './ui/theme';
 
 export type Route = { name: 'home' } | { name: 'chat'; id: Id } | { name: 'call' } | { name: 'settings' };
@@ -23,6 +24,18 @@ export interface Nav {
 
 export default function App() {
   const phase = useSession((s) => s.phase);
+  // Mandatory update: nothing opens until the launch check is done, and a
+  // newer version (outside a call) replaces the whole app with UpdateRequired.
+  const [checked, setChecked] = useState(false);
+  const mustUpdate = useUpdate((s) => !!s.available);
+  const inCall = useCall((s) => s.status !== 'idle');
+  useEffect(() => {
+    void startupCheck().then(() => setChecked(true));
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') void checkForUpdate(8000);
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     void loadSoundPrefs();
@@ -44,7 +57,15 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" />
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top', 'bottom']}>
-        {phase === 'boot' ? <View style={{ flex: 1 }} /> : phase === 'login' ? <LoginScreen /> : <Main />}
+        {mustUpdate && !inCall ? (
+          <UpdateRequired />
+        ) : !checked || phase === 'boot' ? (
+          <View style={{ flex: 1 }} />
+        ) : phase === 'login' ? (
+          <LoginScreen />
+        ) : (
+          <Main />
+        )}
       </SafeAreaView>
     </SafeAreaProvider>
   );

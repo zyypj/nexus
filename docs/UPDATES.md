@@ -57,9 +57,12 @@ download real do LiveKit 1.13.9 com verificação de checksum.
 minisign** do instalador com a chave pública embutida em `tauri.conf.json` e instala em modo
 passivo. Uma release sem assinatura válida é rejeitada.
 
-- Procura atualizações 15 s após abrir e depois a cada 6 h.
-- Com "Baixar atualizações automaticamente" (padrão), baixa em segundo plano; o usuário só clica
-  em **Reiniciar e atualizar** (se estiver em chamada, o app pergunta antes).
+- **Obrigatória ao abrir**: antes do login/da interface, o app consulta o `latest.json` (máx.
+  8 s). Se houver versão nova, mostra só a tela "Atualizando para o Nexus X" (progresso),
+  instala e reabre — não dá para pular. Sem internet / GitHub fora do ar, o app abre normalmente.
+- Com o app aberto (inclusive só na bandeja): checa a cada 1 h e baixa em segundo plano. A
+  instalação acontece sozinha com a janela escondida, ou no momento em que ela é reaberta —
+  nunca durante uma chamada. Com a janela em uso, aparece **Reiniciar e atualizar**.
 - Configurações → Aplicativo → **Procurar atualizações** força uma checagem.
 
 Chaves: a privada (com senha) fica **fora do repositório** e vai para os secrets do GitHub
@@ -71,8 +74,9 @@ chave.
 ## App Android
 
 Sem Play Store: o app consulta `https://api.github.com/repos/zyypj/nexus/releases/latest`
-(na abertura e a cada 6 h), compara com a própria versão e mostra
-"Nexus X disponível — toque para atualizar". O APK é baixado pelo `DownloadManager` para a pasta
+**antes de abrir** (máx. 8 s), ao voltar para o primeiro plano e a cada 6 h. Se houver versão
+nova (e não estiver em chamada), o app inteiro vira a tela **"Atualização obrigatória"**: o
+download começa sozinho e o Android pede para confirmar a instalação. O APK é baixado pelo `DownloadManager` para a pasta
 privada do app e entregue ao instalador do Android, que **sempre pede confirmação** e só aceita
 um APK assinado com a **mesma chave** do instalado. Na primeira vez o Android pede para permitir
 "instalar apps desconhecidos" para o Nexus.
