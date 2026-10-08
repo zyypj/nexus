@@ -214,7 +214,8 @@ export class NexusClient {
     const visible = this.opts.isAppVisible?.() ?? true;
     if (s.activeConversationId === m.conversation_id && visible) {
       this.markRead(m.conversation_id);
-    } else if (!s.blocked[m.author_id]) {
+    } else if (!s.blocked[m.author_id] && !s.conversations[m.conversation_id]?.server_id) {
+      // Server channels only show as unread (no popup/sound for every message).
       this.opts.onNotify?.(m, s);
     }
   }

@@ -1,7 +1,19 @@
 import type { GatewayFrame, Message, Ready } from "@nexus/protocol";
 import { describe, expect, it } from "vitest";
 import { backoffDelay } from "../src/backoff";
-import { type NexusState, applyFrame, emptyBucket, initialState, typingUsers, upsertMessage } from "../src/store";
+import type { ConversationView, ServerView } from "@nexus/protocol";
+import {
+  type NexusState,
+  applyFrame,
+  emptyBucket,
+  initialState,
+  memberColor,
+  serverChannels,
+  sortedConversations,
+  totalUnread,
+  typingUsers,
+  upsertMessage,
+} from "../src/store";
 
 const me = { id: "u-me", username: "me", display_name: "Eu", avatar_url: null, bio: "" };
 const joao = { id: "u-joao", username: "joao", display_name: "João", avatar_url: null, bio: "" };
@@ -26,6 +38,7 @@ function ready(): Ready {
     ],
     presences: [{ user_id: "u-joao", status: "online" }],
     calls: [],
+    servers: [],
     server: { name: "Nexus", version: "0.1.0", calls_enabled: true, max_upload_size: 1 },
   };
 }
@@ -173,5 +186,77 @@ describe("backoffDelay", () => {
     expect(backoffDelay(3, { random: max })).toBe(7999);
     expect(backoffDelay(20, { random: max })).toBe(29_999);
     expect(backoffDelay(5, { random: () => 0 })).toBe(250);
+  });
+});
+
+describe("servers", () => {
+  const channel = (id: string, extra: Partial<ConversationView> = {}): ConversationView => ({
+    id,
+    kind: "text",
+    name: id,
+    owner_id: null,
+    members: [],
+    last_message_id: null,
+    created_at: 0,
+    last_read_message_id: null,
+    unread_count: 0,
+    server_id: "srv",
+    category_id: "cat",
+    position: 0,
+    permissions: 0xffff,
+    ...extra,
+  });
+  const server = (channels: ConversationView[]): ServerView => ({
+    id: "srv",
+    name: "Clube",
+    icon_url: null,
+    owner_id: "u-me",
+    created_at: 0,
+    permissions: 0x1ffff,
+    roles: [
+      { id: "mod", name: "Mod", color: 0x5b73f7, position: 1, permissions: 0, hoist: true },
+      { id: "srv", name: "@everyone", color: 0, position: 0, permissions: 0, hoist: false },
+    ],
+    categories: [{ id: "cat", name: "Texto", position: 0 }],
+    channels,
+    overwrites: [],
+    members: [
+      { user: me, nickname: null, role_ids: [], joined_at: 0 },
+      { user: joao, nickname: "Jão", role_ids: ["mod"], joined_at: 0 },
+    ],
+  });
+  const withReady = (servers: ServerView[]) => {
+    const s = { ...initialState(), ...applyFrame(initialState(), { t: "READY", d: { ...ready(), servers } }) };
+    return s as NexusState;
+  };
+
+  it("READY puts channels next to DMs but keeps them out of the DM list and badge", () => {
+    const s = withReady([server([channel("geral", { unread_count: 3 }), channel("voz", { kind: "voice", position: 1 })])]);
+    expect(Object.keys(s.servers)).toEqual(["srv"]);
+    expect(s.conversations.geral?.server_id).toBe("srv");
+    expect(sortedConversations(s).map((c) => c.id)).toEqual(["c1"]);
+    expect(totalUnread(s)).toBe(0);
+    const groups = serverChannels(s, "srv");
+    expect(groups.map((g) => g.category?.name ?? null)).toEqual(["Texto"]);
+    expect(groups[0]?.channels.map((c) => c.id)).toEqual(["geral", "voz"]);
+    expect(memberColor(s.servers.srv as ServerView, "u-joao")).toBe("#5b73f7");
+    expect(memberColor(s.servers.srv as ServerView, "u-me")).toBeUndefined();
+  });
+
+  it("SERVER_UPDATE replaces the channel set (hidden channels disappear)", () => {
+    let s = withReady([server([channel("geral"), channel("staff")])]);
+    s = { ...s, activeConversationId: "staff" };
+    s = { ...s, ...applyFrame(s, { t: "SERVER_UPDATE", d: server([channel("geral")]) }) };
+    expect(s.conversations.staff).toBeUndefined();
+    expect(s.conversations.geral).toBeDefined();
+    expect(s.activeConversationId).toBeNull();
+  });
+
+  it("SERVER_DELETE removes the server and its channels only", () => {
+    let s = withReady([server([channel("geral")])]);
+    s = { ...s, ...applyFrame(s, { t: "SERVER_DELETE", d: { id: "srv" } }) };
+    expect(s.servers.srv).toBeUndefined();
+    expect(s.conversations.geral).toBeUndefined();
+    expect(s.conversations.c1).toBeDefined();
   });
 });

@@ -17,6 +17,12 @@ import type {
   PublicServerInfo,
   PublicUser,
   Relationships,
+  ServerBan,
+  ServerCategory,
+  ServerInvite,
+  ServerInvitePreview,
+  ServerRole,
+  ServerView,
   SessionInfo,
   UserStatus,
 } from "@nexus/protocol";
@@ -367,6 +373,109 @@ export class ApiClient {
       throw new ApiError(res.status, code, message);
     }
     return JSON.parse(res.body) as T;
+  }
+
+  // ---- servers ----
+  createServer(name: string): Promise<ServerView> {
+    return this.request("POST", "/api/servers", { name });
+  }
+  updateServer(id: Id, body: { name?: string }): Promise<void> {
+    return this.request("PATCH", `/api/servers/${id}`, body);
+  }
+  deleteServer(id: Id): Promise<void> {
+    return this.request("DELETE", `/api/servers/${id}`);
+  }
+  uploadServerIcon(id: Id, file: UploadSource, fileName: string): Promise<void> {
+    const form = new FormData();
+    appendFile(form, file, fileName);
+    return this.request("POST", `/api/servers/${id}/icon`, form);
+  }
+  deleteServerIcon(id: Id): Promise<void> {
+    return this.request("DELETE", `/api/servers/${id}/icon`);
+  }
+  transferServer(id: Id, userId: Id): Promise<void> {
+    return this.request("POST", `/api/servers/${id}/transfer`, { user_id: userId });
+  }
+  leaveServer(id: Id): Promise<void> {
+    return this.request("DELETE", `/api/servers/${id}/members/@me`);
+  }
+  /** `nickname: null` clears it; omit a field to leave it unchanged. */
+  updateServerMember(id: Id, userId: Id, body: { nickname?: string | null; role_ids?: Id[] }): Promise<void> {
+    return this.request("PATCH", `/api/servers/${id}/members/${userId}`, body);
+  }
+  kickMember(id: Id, userId: Id): Promise<void> {
+    return this.request("DELETE", `/api/servers/${id}/members/${userId}`);
+  }
+  banMember(id: Id, userId: Id, reason?: string): Promise<void> {
+    return this.request("PUT", `/api/servers/${id}/bans/${userId}`, { reason: reason ?? null });
+  }
+  unbanMember(id: Id, userId: Id): Promise<void> {
+    return this.request("DELETE", `/api/servers/${id}/bans/${userId}`);
+  }
+  listBans(id: Id): Promise<ServerBan[]> {
+    return this.request("GET", `/api/servers/${id}/bans`);
+  }
+  createServerInvite(id: Id, body: { max_uses?: number; expires_in_secs?: number } = {}): Promise<ServerInvite> {
+    return this.request("POST", `/api/servers/${id}/invites`, body);
+  }
+  listServerInvites(id: Id): Promise<ServerInvite[]> {
+    return this.request("GET", `/api/servers/${id}/invites`);
+  }
+  previewServerInvite(code: string): Promise<ServerInvitePreview> {
+    return this.request("GET", `/api/server-invites/${encodeURIComponent(code)}`);
+  }
+  joinServer(code: string): Promise<ServerView> {
+    return this.request("POST", `/api/server-invites/${encodeURIComponent(code)}`, {});
+  }
+  deleteServerInvite(code: string): Promise<void> {
+    return this.request("DELETE", `/api/server-invites/${encodeURIComponent(code)}`);
+  }
+  createRole(id: Id, body: { name?: string; color?: number; permissions?: number; hoist?: boolean }): Promise<ServerRole> {
+    return this.request("POST", `/api/servers/${id}/roles`, body);
+  }
+  updateRole(
+    id: Id,
+    roleId: Id,
+    body: { name?: string; color?: number; permissions?: number; hoist?: boolean },
+  ): Promise<void> {
+    return this.request("PATCH", `/api/servers/${id}/roles/${roleId}`, body);
+  }
+  deleteRole(id: Id, roleId: Id): Promise<void> {
+    return this.request("DELETE", `/api/servers/${id}/roles/${roleId}`);
+  }
+  /** Highest first, every role except @everyone. */
+  orderRoles(id: Id, roleIds: Id[]): Promise<void> {
+    return this.request("PUT", `/api/servers/${id}/roles/order`, { role_ids: roleIds });
+  }
+  createCategory(id: Id, name: string): Promise<ServerCategory> {
+    return this.request("POST", `/api/servers/${id}/categories`, { name });
+  }
+  updateCategory(id: Id, categoryId: Id, name: string): Promise<void> {
+    return this.request("PATCH", `/api/servers/${id}/categories/${categoryId}`, { name });
+  }
+  deleteCategory(id: Id, categoryId: Id): Promise<void> {
+    return this.request("DELETE", `/api/servers/${id}/categories/${categoryId}`);
+  }
+  createChannel(id: Id, body: { name: string; kind: "text" | "voice"; category_id?: Id | null; topic?: string }): Promise<void> {
+    return this.request("POST", `/api/servers/${id}/channels`, body);
+  }
+  updateChannel(id: Id, channelId: Id, body: { name?: string; topic?: string }): Promise<void> {
+    return this.request("PATCH", `/api/servers/${id}/channels/${channelId}`, body);
+  }
+  deleteChannel(id: Id, channelId: Id): Promise<void> {
+    return this.request("DELETE", `/api/servers/${id}/channels/${channelId}`);
+  }
+  setServerLayout(
+    id: Id,
+    body: { categories?: { id: Id; position: number }[]; channels?: { id: Id; category_id: Id | null; position: number }[] },
+  ): Promise<void> {
+    return this.request("PUT", `/api/servers/${id}/layout`, body);
+  }
+  putOverwrite(id: Id, targetId: Id, roleId: Id, allow: number, deny: number): Promise<void> {
+    return this.request("PUT", `/api/servers/${id}/overwrites/${targetId}/${roleId}`, { allow, deny });
+  }
+  deleteOverwrite(id: Id, targetId: Id, roleId: Id): Promise<void> {
+    return this.request("DELETE", `/api/servers/${id}/overwrites/${targetId}/${roleId}`);
   }
 
   // ---- calls ----

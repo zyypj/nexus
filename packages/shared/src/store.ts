@@ -10,7 +10,11 @@ import type {
   Presence,
   PublicUser,
   ServerInfo,
+  ServerMember,
+  ServerRole,
+  ServerView,
 } from "@nexus/protocol";
+import { isChannel } from "@nexus/protocol";
 import { createStore } from "zustand/vanilla";
 import type { GatewayState } from "./gateway";
 
@@ -46,6 +50,8 @@ export interface NexusState {
   /** conversation -> user -> expiry timestamp */
   typing: Record<Id, Record<Id, number>>;
   calls: Record<Id, Call>;
+  /** Servers (guilds); their channels also live in `conversations`. */
+  servers: Record<Id, ServerView>;
   activeConversationId: Id | null;
 }
 
@@ -63,6 +69,7 @@ export const initialState = (): NexusState => ({
   messages: {},
   typing: {},
   calls: {},
+  servers: {},
   activeConversationId: null,
 });
 
@@ -97,6 +104,41 @@ function indexUsers(users: Record<Id, PublicUser>, list: PublicUser[]): Record<I
     }
   }
   return next;
+}
+
+/**
+ * Puts a server view into the state: the server itself, its channels into
+ * `conversations` (replacing the old set, so hidden/deleted channels go away)
+ * and its members into `users`.
+ */
+function withServer(
+  s: Pick<NexusState, "servers" | "conversations" | "users">,
+  view: ServerView,
+): Pick<NexusState, "servers" | "conversations" | "users"> {
+  const conversations: Record<Id, ConversationView> = {};
+  for (const [id, c] of Object.entries(s.conversations)) if (c.server_id !== view.id) conversations[id] = c;
+  for (const c of view.channels) conversations[c.id] = c;
+  return {
+    servers: { ...s.servers, [view.id]: view },
+    conversations,
+    users: indexUsers(
+      s.users,
+      view.members.map((m) => m.user),
+    ),
+  };
+}
+
+function withoutServer(s: NexusState, id: Id): Partial<NexusState> {
+  if (!s.servers[id]) return {};
+  const { [id]: _gone, ...servers } = s.servers;
+  const conversations: Record<Id, ConversationView> = {};
+  for (const [cid, c] of Object.entries(s.conversations)) if (c.server_id !== id) conversations[cid] = c;
+  const active = s.activeConversationId;
+  return {
+    servers,
+    conversations,
+    activeConversationId: active && conversations[active] ? active : null,
+  };
 }
 
 /** Inserts or replaces by id, keeping ascending id order (UUIDv7 = time order). */
@@ -178,10 +220,18 @@ export function applyFrame(s: NexusState, frame: GatewayFrame, now = Date.now())
       for (const f of d.relationships.friends) friends[f.user.id] = f;
       const blocked: Record<Id, PublicUser> = {};
       for (const b of d.relationships.blocked) blocked[b.id] = b;
+      let withServers: Pick<NexusState, "servers" | "conversations" | "users"> = {
+        servers: {},
+        conversations,
+        users,
+      };
+      for (const v of d.servers ?? []) withServers = withServer(withServers, v);
+      users = withServers.users;
+      const allConversations = withServers.conversations;
       // Cached history may have missed edits/deletes while offline.
       const messages: Record<Id, MessageBucket> = {};
       for (const [id, b] of Object.entries(s.messages)) {
-        if (conversations[id]) messages[id] = { ...b, stale: true, loading: false };
+        if (allConversations[id]) messages[id] = { ...b, stale: true, loading: false };
       }
       return {
         me: d.user,
@@ -192,12 +242,13 @@ export function applyFrame(s: NexusState, frame: GatewayFrame, now = Date.now())
         incoming: d.relationships.incoming,
         outgoing: d.relationships.outgoing,
         blocked,
-        conversations,
+        conversations: allConversations,
+        servers: withServers.servers,
         calls,
         messages,
         typing: {},
         activeConversationId:
-          s.activeConversationId && conversations[s.activeConversationId] ? s.activeConversationId : null,
+          s.activeConversationId && allConversations[s.activeConversationId] ? s.activeConversationId : null,
       };
     }
 
@@ -407,6 +458,19 @@ export function applyFrame(s: NexusState, frame: GatewayFrame, now = Date.now())
       };
     }
 
+    case "SERVER_CREATE":
+    case "SERVER_UPDATE": {
+      const next = withServer(s, frame.d);
+      const active = s.activeConversationId;
+      return {
+        ...next,
+        activeConversationId: active && next.conversations[active] ? active : null,
+      };
+    }
+
+    case "SERVER_DELETE":
+      return withoutServer(s, frame.d.id);
+
     case "CALL_CREATE":
       return { calls: { ...s.calls, [frame.d.id]: frame.d } };
 
@@ -469,8 +533,11 @@ export function dmPeer(s: NexusState, c: ConversationView): PublicUser | undefin
   return c.members.find((m) => m.id !== s.me?.id);
 }
 
+/** DMs and groups (server channels are listed per server), newest first. */
 export function sortedConversations(s: NexusState): ConversationView[] {
-  return Object.values(s.conversations).sort((a, b) => {
+  return Object.values(s.conversations)
+    .filter((c) => !isChannel(c))
+    .sort((a, b) => {
     const ka = a.last_message_id ?? a.id;
     const kb = b.last_message_id ?? b.id;
     return ka < kb ? 1 : ka > kb ? -1 : 0;
@@ -494,6 +561,65 @@ export function typingUsers(s: NexusState, conversationId: Id, now = Date.now())
     .map(([uid]) => uid);
 }
 
+/** Unread in DMs and groups (taskbar badge; channels only show a dot). */
 export function totalUnread(s: NexusState): number {
-  return Object.values(s.conversations).reduce((n, c) => n + c.unread_count, 0);
+  return Object.values(s.conversations).reduce((n, c) => (isChannel(c) ? n : n + c.unread_count), 0);
+}
+
+// ---- servers ----
+
+export interface ChannelGroup {
+  /** null = channels without a category (shown first). */
+  category: { id: Id; name: string } | null;
+  channels: ConversationView[];
+}
+
+/** A server's visible channels grouped by category, in display order. */
+export function serverChannels(s: NexusState, serverId: Id): ChannelGroup[] {
+  const server = s.servers[serverId];
+  if (!server) return [];
+  const channels = Object.values(s.conversations)
+    .filter((c) => c.server_id === serverId)
+    .sort((a, b) =>
+      // Text before voice inside a category, then by position.
+      a.kind !== b.kind ? (a.kind === "text" ? -1 : 1) : (a.position ?? 0) - (b.position ?? 0),
+    );
+  const groups: ChannelGroup[] = [{ category: null, channels: channels.filter((c) => !c.category_id) }];
+  for (const cat of [...server.categories].sort((a, b) => a.position - b.position)) {
+    groups.push({ category: { id: cat.id, name: cat.name }, channels: channels.filter((c) => c.category_id === cat.id) });
+  }
+  return groups.filter((g) => g.category || g.channels.length);
+}
+
+/** Server has unread text channels (for the dot on its icon). */
+export function serverHasUnread(s: NexusState, serverId: Id): boolean {
+  return Object.values(s.conversations).some((c) => c.server_id === serverId && c.unread_count > 0);
+}
+
+export function serverMember(server: ServerView, userId: Id): ServerMember | undefined {
+  return server.members.find((m) => m.user.id === userId);
+}
+
+/** Roles of a member, highest first (without @everyone). */
+export function memberRoles(server: ServerView, userId: Id): ServerRole[] {
+  const ids = serverMember(server, userId)?.role_ids ?? [];
+  return server.roles.filter((r) => ids.includes(r.id));
+}
+
+/** Name color = the highest colored role, as "#rrggbb" (undefined = default). */
+export function memberColor(server: ServerView, userId: Id): string | undefined {
+  const role = memberRoles(server, userId).find((r) => r.color !== 0);
+  return role ? `#${role.color.toString(16).padStart(6, "0")}` : undefined;
+}
+
+/** Nickname in the server, else display name. */
+export function memberName(s: NexusState, server: ServerView | undefined, userId: Id): string {
+  const nick = server ? serverMember(server, userId)?.nickname : null;
+  return nick || s.users[userId]?.display_name || "Usuário";
+}
+
+/** Top role position (owner = Infinity), for hierarchy checks in the UI. */
+export function memberTop(server: ServerView, userId: Id): number {
+  if (server.owner_id === userId) return Number.POSITIVE_INFINITY;
+  return Math.max(0, ...memberRoles(server, userId).map((r) => r.position));
 }
