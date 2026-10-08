@@ -1,6 +1,6 @@
 /**
  * One shared 48 kHz AudioContext for the whole call: LiveKit's playback mix
- * (per-user gain up to 200%), RNNoise and system-audio injection all run in
+ * (per-user gain up to 300%), RNNoise and system-audio injection all run in
  * the same audio thread instead of spinning up several.
  */
 let ctx: AudioContext | null = null;

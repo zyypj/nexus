@@ -268,7 +268,7 @@ class CallManager {
   }
 
   setVolume(identity: Id, volume: number) {
-    set({ volumes: { ...useCall.getState().volumes, [identity]: Math.max(0, Math.min(2, volume)) } });
+    set({ volumes: { ...useCall.getState().volumes, [identity]: Math.max(0, Math.min(3, volume)) } });
     this.applyVolumes();
   }
 

@@ -1099,20 +1099,6 @@ video.mirror {
   font-size: var(--fs-xs);
   color: var(--c-text-muted);
 }
-.volume-menu {
-  position: absolute;
-  z-index: 30;
-  top: 8px;
-  left: 8px;
-  right: 8px;
-  background: var(--c-surface-raised);
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
 
 /* ---------- modal & settings ---------- */
 .modal-backdrop {

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { create } from "zustand";
 import { useNexus } from "../lib/nexus";
@@ -23,6 +23,8 @@ export type MenuEntry =
     }
   | { separator: true }
   | { reactions: readonly string[]; pick: (emoji: string) => void }
+  /** Custom row (e.g. the volume slider); it reads its own live state. */
+  | { key: string; node: ReactNode }
   | false
   | null
   | undefined;
@@ -170,6 +172,7 @@ function Menu({
     >
       {items.map((item, i) => {
         if ("separator" in item) return <div key={`sep${i}`} className="ctx-sep" />;
+        if ("node" in item) return <div key={item.key}>{item.node}</div>;
         if ("reactions" in item)
           return (
             <div key="reactions" className="ctx-reactions">

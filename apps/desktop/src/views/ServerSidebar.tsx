@@ -5,6 +5,7 @@ import { calls, useCall } from "../call/callStore";
 import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { openContextMenu } from "../components/ContextMenu";
+import { volumeEntry } from "../components/UserVolume";
 import { Modal } from "../components/Modal";
 import { openDialog } from "../lib/dialogs";
 import { client, useNexus } from "../lib/nexus";
@@ -303,7 +304,12 @@ function VoiceMember({
       className={`voice-member${speaking ? " speaking" : ""}`}
       onContextMenu={(e) => {
         const at = { x: e.clientX, y: e.clientY };
-        openContextMenu(e, () => userMenu(userId, at, serverId || null));
+        openContextMenu(e, () => [
+          // Your own row has no volume (you never hear yourself).
+          userId !== client().store.getState().me?.id && volumeEntry(userId),
+          { separator: true },
+          ...userMenu(userId, at, serverId || null),
+        ]);
       }}
     >
       <Avatar user={user} size={22} />

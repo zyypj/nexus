@@ -1331,3 +1331,77 @@
   background: var(--c-surface-hover);
   transform: scale(1.12);
 }
+
+/* per-user volume (right click on someone in a call) */
+.ctx-volume {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px 8px;
+  min-width: 240px;
+}
+.ctx-volume-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  color: var(--c-text-muted);
+  font-weight: 500;
+}
+.ctx-volume-head strong {
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+}
+.ctx-volume-head strong.boost {
+  color: var(--c-highlight, #22d3ee);
+}
+.ctx-volume input[type="range"] {
+  width: 100%;
+  height: 6px;
+  appearance: none;
+  border-radius: 3px;
+  background: linear-gradient(to right, var(--c-accent) var(--fill), var(--c-border) var(--fill));
+  cursor: pointer;
+}
+.ctx-volume input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.ctx-volume input[type="range"]:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ctx-volume-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--c-text-faint);
+}
+.ctx-volume-actions {
+  display: flex;
+  gap: 6px;
+}
+.ctx-volume-actions button {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--c-surface-hover);
+  color: var(--c-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.ctx-volume-actions button:hover:not(:disabled) {
+  background: var(--c-accent);
+  color: #fff;
+}
+.ctx-volume-actions button.on {
+  background: var(--c-danger);
+  color: #fff;
+}
+.ctx-volume-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

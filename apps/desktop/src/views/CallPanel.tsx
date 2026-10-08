@@ -2,9 +2,9 @@ import { memo, useEffect, useRef, useState } from "react";
 import { type ParticipantView, calls, useCall } from "../call/callStore";
 import { Avatar } from "../components/Avatar";
 import { openContextMenu } from "../components/ContextMenu";
+import { volumeEntry } from "../components/UserVolume";
 import { Icon } from "../components/Icon";
 import { client, useNexus } from "../lib/nexus";
-import { useSettings } from "../lib/settings";
 import { userMenu } from "./menus";
 
 /**
@@ -85,7 +85,6 @@ const ParticipantTile = memo(function ParticipantTile({
     return call?.participants.find((x) => x.user_id === p.identity)?.deafened ?? false;
   });
   const ref = useAttachedVideo(p.identity, "camera");
-  const [menu, setMenu] = useState(false);
 
   return (
     <div
@@ -96,7 +95,7 @@ const ParticipantTile = memo(function ParticipantTile({
         const conv = useCall.getState().conversationId;
         const serverId = (conv && client().store.getState().conversations[conv]?.server_id) || null;
         openContextMenu(e, () => [
-          !p.isLocal && { label: "Volume e silenciar…", icon: "volume", run: () => setMenu(true) },
+          !p.isLocal && volumeEntry(p.identity),
           { separator: true },
           ...userMenu(p.identity, at, serverId),
         ]);
@@ -118,39 +117,6 @@ const ParticipantTile = memo(function ParticipantTile({
           <Icon name="screen" size={14} />
         </button>
       )}
-      {menu && <VolumeMenu identity={p.identity} name={user?.display_name ?? p.name} onClose={() => setMenu(false)} />}
     </div>
   );
 });
-
-/** Local-only volume (0–200%) and mute for one participant. */
-function VolumeMenu({ identity, name, onClose }: { identity: string; name: string; onClose: () => void }) {
-  const volume = useSettings((s) => s.volumes[identity] ?? 1);
-  const muted = useSettings((s) => s.localMutes[identity] ?? false);
-  const set = useSettings((s) => s.set);
-  return (
-    <div className="volume-menu" onMouseLeave={onClose}>
-      <strong>{name}</strong>
-      <label>
-        Volume: {Math.round(volume * 100)}%
-        <input
-          type="range"
-          min={0}
-          max={200}
-          step={5}
-          value={Math.round(volume * 100)}
-          onChange={(e) => set({ volumes: { ...useSettings.getState().volumes, [identity]: Number(e.target.value) / 100 } })}
-        />
-      </label>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={muted}
-          onChange={(e) => set({ localMutes: { ...useSettings.getState().localMutes, [identity]: e.target.checked } })}
-        />
-        Silenciar para mim
-      </label>
-      <small className="muted">Só altera o que você ouve.</small>
-    </div>
-  );
-}

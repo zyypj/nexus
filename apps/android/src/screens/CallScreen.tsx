@@ -179,7 +179,7 @@ function SheetButton({ label, onPress }: { label: string; onPress: () => void })
   );
 }
 
-/** Local-only volume, 0–200%. Long-press a tile to open. */
+/** Local-only volume, 0–300%. Long-press a tile to open. */
 function VolumeSheet({ p, onClose }: { p: ParticipantView; onClose: () => void }) {
   const volume = useCall((s) => s.volumes[p.identity] ?? 1);
   const pct = Math.round(volume * 100);

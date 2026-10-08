@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-08 (versão 0.2.2).
+Última atualização: 2026-10-08 (versão 0.2.3).
 
 ## Fase atual
 
@@ -89,6 +89,13 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
+
+## 0.2.3 — volume por pessoa até 300%
+
+- Botão direito em alguém na call (quadros da chamada e lista do canal de voz): controle de
+  volume direto no menu, 0–300% (passos de 5%, rodinha do mouse ajusta), "Voltar para 100%" e
+  "Silenciar para mim". Só muda o que você ouve; fica salvo por pessoa.
+- Acima de 100% é amplificação real (ganho no WebAudio). Android: toque longo no quadro, até 300%.
 
 ## 0.2.2 — microfone escolhido de verdade
 

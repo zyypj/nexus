@@ -482,7 +482,7 @@ export class CallManager {
 
   // ---------- playback ----------
 
-  /** Local-only volumes (0..200%) and mutes; deafen silences everyone. */
+  /** Local-only volumes (0..300%) and mutes; deafen silences everyone. */
   applyVolumes() {
     const room = this.room;
     if (!room) return;
