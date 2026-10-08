@@ -34,7 +34,7 @@ sessões, perfil/avatar, amizades, bloqueio, DMs, grupos (até 25), mensagens (e
 responder, reações, não lidas, paginação), uploads (limite, validação por magic bytes, nome
 aleatório, URLs assinadas), presença, digitando, gateway WebSocket (heartbeat, READY re-sync),
 calls (room LiveKit por call, token restrito, webhook, expulsão via RoomService, carência de 30 s
-após queda), rate limit, CLI admin, TLS opcional.
+após queda), rate limit, CLI admin + comandos admin pelo console (stdin, útil no Pterodactyl), TLS opcional.
 
 Windows (`apps/desktop`): login/cadastro, amigos/pedidos/bloqueados/convites (admin), DMs e
 grupos, chat virtualizado com markdown leve/links/anexos/imagens/reações/respostas/edição,
@@ -130,4 +130,3 @@ docs/                            ARCHITECTURE, WINDOWS, ANDROID, AUDIO, SCREEN_S
 4. Testar hotkeys/PTT com o app minimizado.
 5. Construir imagens Docker e validar os eggs num Pterodactyl real.
 6. Medir screen share 1080p30, modo Padrão de NS, comparação controlada com o Discord.
-7. Comandos admin pelo console do Pterodactyl (stdin) — hoje só CLI separada ou app.

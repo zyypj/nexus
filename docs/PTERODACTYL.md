@@ -94,10 +94,10 @@ Persistência: `NEXUS_DATA_DIR=/home/container/data`, ou seja, `data/nexus.db` (
 
 ## 7. Primeiro acesso
 
-No console do servidor Nexus (ou via SFTP/terminal do container):
+Digite no **console do servidor Nexus** no painel (o servidor lê comandos do stdin):
 
-```bash
-nexus-server admin invite create --max-uses 1 --expires-in 7d
+```
+invite create --max-uses 1 --expires-in 7d
 ```
 
 Saída:
@@ -108,12 +108,10 @@ NEXUS-H7Q2-P9KA
 ```
 
 O **primeiro** usuário cadastrado vira administrador e pode gerar convites pelo app
-(Amigos → Convites). Outros comandos: `admin invite list`, `admin invite revoke CODE`,
-`admin user list`, `admin user disable NOME`, `admin user enable NOME`, `admin user promote NOME`.
-
-> No Pterodactyl o console envia texto para o stdin do processo, não executa comandos. Rode os
-> comandos administrativos pelo SFTP+terminal do node (`docker exec -it <container> nexus-server
-> admin ...`) ou pelo app (contas admin).
+(Amigos → Convites). Outros comandos do console: `help`, `invite list`, `invite revoke CODE`,
+`user list`, `user disable NOME`, `user enable NOME`, `user promote NOME`, `user demote NOME`.
+Fora do painel, os mesmos comandos existem como `nexus-server admin <comando>`
+(ex. `docker exec -it <container> nexus-server admin user list`).
 
 ## 8. HTTPS (recomendado)
 
