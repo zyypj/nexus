@@ -1,7 +1,7 @@
 import { NexusClient, type NexusState, conversationTitle } from "@nexus/shared";
 import { useStore } from "zustand";
 import { create } from "zustand";
-import { deviceName, flashWindow, notify, tokenStore } from "./platform";
+import { deviceName, notify, tokenStore } from "./platform";
 import { settings } from "./settings";
 
 /** App-level phase: which screen to show. */
@@ -48,7 +48,6 @@ export function createClient(serverUrl: string): NexusClient {
       const title = conv && conv.kind === "group" ? `${author} em ${conversationTitle(s, conv)}` : author;
       const body = m.content || (m.attachments.length ? "📎 Anexo" : "");
       void notify(title, body.slice(0, 140));
-      void flashWindow();
     },
   });
   useSession.setState({ client });

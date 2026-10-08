@@ -55,16 +55,6 @@ export async function setBadge(count: number): Promise<void> {
   }
 }
 
-export async function flashWindow(): Promise<void> {
-  if (!isTauri) return;
-  try {
-    const { getCurrentWindow, UserAttentionType } = await import("@tauri-apps/api/window");
-    await getCurrentWindow().requestUserAttention(UserAttentionType.Informational);
-  } catch {
-    /* cosmetic */
-  }
-}
-
 /** Opens http(s) URLs in the default browser, never inside the app WebView. */
 export async function openExternal(url: string): Promise<void> {
   if (!/^https?:\/\//i.test(url)) return;
