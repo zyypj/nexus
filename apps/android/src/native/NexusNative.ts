@@ -17,6 +17,21 @@ interface NexusNativeSpec {
   playSound(name: string, volume: number): Promise<void>;
   startSoundLoop(name: string, volume: number): Promise<void>;
   stopSoundLoop(name: string): Promise<void>;
+  voiceStart(): Promise<void>;
+  voiceStop(): Promise<VoiceFile | null>;
+  voiceCancel(): void;
+  audioPlay(id: string, url: string): void;
+  audioPause(): void;
+  audioSeek(positionMs: number): void;
+  audioStop(): void;
+}
+
+export interface VoiceFile {
+  uri: string;
+  name: string;
+  type: string;
+  size: number;
+  durationMs: number;
 }
 
 export interface PickedFile {
@@ -51,7 +66,17 @@ export const NexusNative = {
   playSound: async (name: string, volume: number) => native().playSound(name, volume),
   startSoundLoop: async (name: string, volume: number) => native().startSoundLoop(name, volume),
   stopSoundLoop: async (name: string) => native().stopSoundLoop(name),
+  voiceStart: () => native().voiceStart(),
+  voiceStop: () => native().voiceStop(),
+  voiceCancel: () => native().voiceCancel(),
+  audioPlay: (id: string, url: string) => native().audioPlay(id, url),
+  audioPause: () => native().audioPause(),
+  audioSeek: (positionMs: number) => native().audioSeek(positionMs),
+  audioStop: () => native().audioStop(),
 };
+
+/** Chat audio player progress: { id, state, position, duration } (ms). */
+export const AUDIO_EVENT = 'NexusAudio';
 
 export const UPDATE_ERROR_EVENT = 'NexusUpdateError';
 

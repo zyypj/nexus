@@ -3,6 +3,7 @@ import { formatBytes } from "@nexus/shared";
 import { type ClipboardEvent, useEffect, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import { client, useNexus } from "../lib/nexus";
+import { VoiceRecorder } from "../lib/voiceRecorder";
 
 interface Props {
   conversationId: Id;
@@ -27,6 +28,8 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const recorder = useRef<VoiceRecorder | null>(null);
+  const [recordingMs, setRecordingMs] = useState<number | null>(null);
   // 0 = no limit (default since 0.1.2).
   const maxUpload = useNexus((s) => s.server?.max_upload_size ?? 0);
   const reply = useNexus((s) =>
@@ -106,6 +109,55 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
     ref.current?.focus();
   }, [dropped]);
 
+  // ---- voice messages ----
+  async function startVoice() {
+    setError(null);
+    const rec = new VoiceRecorder();
+    try {
+      await rec.start();
+    } catch (e) {
+      setError(`Microfone indisponível: ${(e as Error).message}`);
+      return;
+    }
+    rec.onAutoStop = () => void finishVoice(true);
+    recorder.current = rec;
+    setRecordingMs(0);
+  }
+
+  async function finishVoice(send: boolean) {
+    const rec = recorder.current;
+    recorder.current = null;
+    setRecordingMs(null);
+    if (!rec) return;
+    if (!send) {
+      rec.cancel();
+      return;
+    }
+    if (rec.elapsedMs() < 700) {
+      rec.cancel();
+      setError("Gravação muito curta.");
+      return;
+    }
+    const file = await rec.stop();
+    if (!file) return;
+    try {
+      await client().sendMessage(conversationId, "", { replyTo, files: [{ file, name: file.name }] });
+      onClearReply();
+    } catch (e) {
+      setError(sendError(e));
+    }
+  }
+
+  // Recording clock (only while recording).
+  useEffect(() => {
+    if (recordingMs === null) return;
+    const t = setInterval(() => setRecordingMs(recorder.current?.elapsedMs() ?? 0), 200);
+    return () => clearInterval(t);
+  }, [recordingMs === null]);
+
+  // Leaving the conversation discards an unfinished recording.
+  useEffect(() => () => recorder.current?.cancel(), []);
+
   const onPaste = (e: ClipboardEvent) => {
     if (e.clipboardData.files.length > 0) {
       e.preventDefault();
@@ -136,6 +188,24 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
         </div>
       )}
       {error && <div className="form-error">{error}</div>}
+      {recordingMs !== null ? (
+        <div className="composer-row recording">
+          <button type="button" className="icon-btn" title="Cancelar gravação" onClick={() => void finishVoice(false)}>
+            <Icon name="trash" />
+          </button>
+          <span className="rec-dot" aria-hidden />
+          <span className="rec-time">
+            {Math.floor(recordingMs / 60000)}:
+            {Math.floor((recordingMs % 60000) / 1000)
+              .toString()
+              .padStart(2, "0")}
+          </span>
+          <span className="rec-label">Gravando mensagem de voz…</span>
+          <button type="button" className="btn primary small" onClick={() => void finishVoice(true)}>
+            Enviar
+          </button>
+        </div>
+      ) : (
       <div className="composer-row">
         <button type="button" className="icon-btn" title="Anexar arquivo" onClick={() => fileInput.current?.click()}>
           <Icon name="paperclip" />
@@ -175,10 +245,17 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
             } else if (e.key === "Escape" && replyTo) onClearReply();
           }}
         />
-        <button type="button" className="icon-btn" title="Enviar" onClick={() => void send()}>
-          <Icon name="send" />
-        </button>
+        {!text.trim() && files.length === 0 ? (
+          <button type="button" className="icon-btn" title="Gravar mensagem de voz" onClick={() => void startVoice()}>
+            <Icon name="mic" />
+          </button>
+        ) : (
+          <button type="button" className="icon-btn" title="Enviar" onClick={() => void send()}>
+            <Icon name="send" />
+          </button>
+        )}
       </div>
+      )}
     </div>
   );
 }

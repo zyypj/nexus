@@ -5,6 +5,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
+import { AudioPlayer, VideoPlayer, mediaKind } from "../components/MediaPlayers";
 import { client, useNexus } from "../lib/nexus";
 import { openExternal } from "../lib/platform";
 import { RichText } from "../lib/richText";
@@ -295,6 +296,9 @@ function AttachmentView({ a }: { a: Attachment }) {
       </>
     );
   }
+  const kind = mediaKind(a);
+  if (kind === "video") return <VideoPlayer a={a} url={url} />;
+  if (kind === "audio" || kind === "voice") return <AudioPlayer a={a} url={url} voice={kind === "voice"} />;
   return (
     <button type="button" className="attachment-file" onClick={() => void openExternal(url)}>
       <Icon name="file" size={28} />

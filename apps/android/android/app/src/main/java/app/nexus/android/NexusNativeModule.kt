@@ -48,6 +48,21 @@ class NexusNativeModule(private val ctx: ReactApplicationContext) :
     private var playbackCallback: AudioManager.AudioPlaybackCallback? = null
     private val installer by lazy { ApkInstaller(ctx) }
     private val sounds by lazy { SoundPlayer(ctx) }
+    private val voice by lazy { VoiceRecorder(ctx) }
+    private val audio by lazy {
+        ChatAudioPlayer { id, state, position, duration ->
+            ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit(
+                    "NexusAudio",
+                    Arguments.createMap().apply {
+                        putString("id", id)
+                        putString("state", state)
+                        putInt("position", position)
+                        putInt("duration", duration)
+                    },
+                )
+        }
+    }
 
     init {
         ctx.addActivityEventListener(this)
@@ -337,6 +352,60 @@ class NexusNativeModule(private val ctx: ReactApplicationContext) :
     @ReactMethod
     fun stopSoundLoop(name: String) = sounds.stopLoop(name)
 
+    // ---- voice messages / chat audio ----
+
+    @ReactMethod
+    fun voiceStart(promise: Promise) {
+        try {
+            voice.start()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("voice_start", e.message ?: "Falha ao iniciar a gravação", e)
+        }
+    }
+
+    @ReactMethod
+    fun voiceStop(promise: Promise) {
+        val result = voice.stop()
+        if (result == null) {
+            promise.resolve(null)
+            return
+        }
+        val (file, duration) = result
+        promise.resolve(
+            Arguments.createMap().apply {
+                putString("uri", "file://${file.absolutePath}")
+                putString("name", file.name)
+                putString("type", "audio/mp4")
+                putDouble("size", file.length().toDouble())
+                putDouble("durationMs", duration.toDouble())
+            },
+        )
+    }
+
+    @ReactMethod
+    fun voiceCancel() = voice.cancel()
+
+    @ReactMethod
+    fun audioPlay(id: String, url: String) {
+        audio.play(id, url)
+    }
+
+    @ReactMethod
+    fun audioPause() {
+        audio.pause()
+    }
+
+    @ReactMethod
+    fun audioSeek(positionMs: Double) {
+        audio.seek(positionMs.toInt())
+    }
+
+    @ReactMethod
+    fun audioStop() {
+        audio.stop()
+    }
+
     // Required by NativeEventEmitter on Android.
     @ReactMethod
     fun addListener(eventName: String) {}
@@ -347,6 +416,8 @@ class NexusNativeModule(private val ctx: ReactApplicationContext) :
     override fun invalidate() {
         stopCaptureInternal()
         sounds.release()
+        voice.cancel()
+        audio.stop()
         super.invalidate()
     }
 

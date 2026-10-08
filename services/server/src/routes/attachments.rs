@@ -20,7 +20,7 @@ use crate::{
     models::Attachment,
     rate_limit::rules,
     state::AppState,
-    storage::{Storage, content_disposition, inline_image_mime, sanitize_file_name},
+    storage::{Storage, content_disposition, inline_image_mime, inline_media_mime, sanitize_file_name},
 };
 
 /// Bytes kept in memory for type sniffing and image dimension parsing.
@@ -201,13 +201,10 @@ pub async fn serve(
     if res.status() == StatusCode::NOT_FOUND {
         return Err(ApiError::NotFound("file"));
     }
-    let inline = inline_image_mime(Some(&content_type)).is_some();
+    let inline_type = inline_image_mime(Some(&content_type)).or_else(|| inline_media_mime(Some(&content_type)));
+    let inline = inline_type.is_some();
     let headers = res.headers_mut();
-    let ct = if inline {
-        content_type.as_str()
-    } else {
-        "application/octet-stream"
-    };
+    let ct = inline_type.unwrap_or("application/octet-stream");
     if let Ok(v) = HeaderValue::from_str(ct) {
         headers.insert(header::CONTENT_TYPE, v);
     }

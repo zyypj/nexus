@@ -11,12 +11,14 @@ import {
   typingUsers,
 } from '@nexus/shared';
 import { QUICK_REACTIONS } from '@nexus/ui';
-import React, { memo, useMemo, useState } from 'react';
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   KeyboardAvoidingView,
   Linking,
+  PermissionsAndroid,
   Modal,
   Pressable,
   StyleSheet,
@@ -30,6 +32,7 @@ import { client, useNexus } from '../lib/nexus';
 import { NexusNative, type PickedFile } from '../native/NexusNative';
 import { Avatar, Icon, IconButton } from '../ui/components';
 import { colors, common, space } from '../ui/theme';
+import { seekAudio, toggleAudio, useChatAudio } from '../lib/chatAudio';
 
 const EMPTY: ClientMessage[] = [];
 
@@ -201,6 +204,24 @@ function AttachmentView({ a }: { a: Attachment }) {
       </Pressable>
     );
   }
+  const kind = mediaKind(a);
+  if (kind === 'voice' || kind === 'audio') return <AudioRow a={a} url={url} voice={kind === 'voice'} />;
+  if (kind === 'video') {
+    // Opens in the phone's video player (inline playback would need a native video view).
+    return (
+      <Pressable style={styles.video} onPress={() => void Linking.openURL(url)}>
+        <View style={styles.videoPlay}>
+          <View style={styles.playGlyph} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={common.text} numberOfLines={1}>
+            {a.file_name}
+          </Text>
+          <Text style={common.muted}>Vídeo · {formatBytes(a.size)} · toque para assistir</Text>
+        </View>
+      </Pressable>
+    );
+  }
   return (
     <Pressable style={styles.file} onPress={() => void Linking.openURL(url)}>
       <Icon name="file" />
@@ -211,6 +232,62 @@ function AttachmentView({ a }: { a: Attachment }) {
         <Text style={common.muted}>{formatBytes(a.size)}</Text>
       </View>
     </Pressable>
+  );
+}
+
+const VOICE_PREFIX = 'mensagem-de-voz';
+const VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska']);
+
+function mediaKind(a: Attachment): 'voice' | 'audio' | 'video' | null {
+  if (a.file_name.startsWith(VOICE_PREFIX)) return 'voice';
+  if (VIDEO_TYPES.has(a.content_type)) return 'video';
+  if (a.content_type.startsWith('audio/')) return 'audio';
+  return null;
+}
+
+function fmtMs(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+}
+
+/** Voice message / audio file: play-pause, tap the bar to seek. */
+function AudioRow({ a, url, voice }: { a: Attachment; url: string; voice: boolean }) {
+  const mine = useChatAudio((s) => s.id === a.id);
+  const state = useChatAudio((s) => (s.id === a.id ? s.state : 'idle'));
+  const position = useChatAudio((s) => (s.id === a.id ? s.position : 0));
+  const duration = useChatAudio((s) => (s.id === a.id ? s.duration : 0));
+  const [width, setWidth] = useState(1);
+  const playing = state === 'playing' || state === 'loading';
+  const pct = duration ? Math.min(1, position / duration) : 0;
+  return (
+    <View style={[styles.audio, voice && styles.voice]}>
+      <Pressable style={styles.audioPlay} onPress={() => toggleAudio(a.id, url)} accessibilityLabel={playing ? 'Pausar' : 'Tocar'}>
+        {state === 'loading' ? (
+          <ActivityIndicator color={colors.accentText} size="small" />
+        ) : playing ? (
+          <View style={styles.pauseGlyph} />
+        ) : (
+          <View style={styles.playGlyph} />
+        )}
+      </Pressable>
+      <View style={{ flex: 1, gap: 4 }}>
+        <Text style={[common.text, { fontWeight: '600' }]} numberOfLines={1}>
+          {voice ? 'Mensagem de voz' : a.file_name}
+        </Text>
+        <Pressable
+          onLayout={(e) => setWidth(e.nativeEvent.layout.width || 1)}
+          onPress={(e) => mine && duration && seekAudio(a.id, (e.nativeEvent.locationX / width) * duration)}
+          hitSlop={8}
+          style={styles.audioTrack}
+        >
+          <View style={[styles.audioFill, { width: `${pct * 100}%` }]} />
+        </Pressable>
+        <Text style={common.muted}>
+          {state === 'error' ? 'Não foi possível tocar' : `${fmtMs(position)}${duration ? ` / ${fmtMs(Math.round(duration / 1000) * 1000)}` : ''}`}
+          {!voice ? ` · ${formatBytes(a.size)}` : ''}
+        </Text>
+      </View>
+    </View>
   );
 }
 
@@ -238,6 +315,7 @@ function Composer({
   const [files, setFiles] = useState<PickedFile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [lastEditing, setLastEditing] = useState<string | null>(null);
+  const [recording, setRecording] = useState<number | null>(null);
   if (editing && editing.id !== lastEditing) {
     setLastEditing(editing.id);
     setText(editing.content);
@@ -267,6 +345,66 @@ function Composer({
     } catch (e) {
       setError((e as Error).message);
     }
+  }
+
+  async function startVoice() {
+    setError(null);
+    const perm = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+    if (perm !== PermissionsAndroid.RESULTS.GRANTED) {
+      setError('Permita o acesso ao microfone para gravar.');
+      return;
+    }
+    try {
+      await NexusNative.voiceStart();
+      setRecording(Date.now());
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function finishVoice(send: boolean) {
+    setRecording(null);
+    if (!send) {
+      NexusNative.voiceCancel();
+      return;
+    }
+    const f = await NexusNative.voiceStop().catch(() => null);
+    if (!f || f.durationMs < 700) {
+      setError('Gravação muito curta.');
+      return;
+    }
+    try {
+      await client().sendMessage(conversationId, '', {
+        replyTo: replyTo?.id ?? null,
+        files: [{ file: { uri: f.uri, name: f.name, type: f.type }, name: f.name }],
+      });
+      onDone();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  // Clock while recording; leaving the chat discards the recording.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (recording === null) return;
+    const t = setInterval(() => setTick((n) => n + 1), 250);
+    return () => clearInterval(t);
+  }, [recording]);
+  useEffect(() => () => NexusNative.voiceCancel(), []);
+
+  if (recording !== null) {
+    return (
+      <View style={[styles.composer, common.row, { gap: space.md, paddingHorizontal: space.sm }]}>
+        <IconButton name="trash" label="Cancelar gravação" danger onPress={() => void finishVoice(false)} />
+        <View style={styles.recDot} />
+        <Text style={[common.text, { fontWeight: '700' }]}>{fmtMs(Date.now() - recording)}</Text>
+        <Text style={[common.muted, { flex: 1 }]}>Gravando…</Text>
+        <Pressable style={[common.button, { paddingHorizontal: space.lg }]} onPress={() => void finishVoice(true)}>
+          <Text style={common.buttonText}>Enviar</Text>
+        </Pressable>
+      </View>
+    );
   }
 
   return (
@@ -312,7 +450,11 @@ function Composer({
           }}
           maxLength={4000}
         />
-        <IconButton name="send" active label="Enviar" onPress={() => void send()} />
+        {!text.trim() && files.length === 0 && !editing ? (
+          <IconButton name="mic" label="Gravar mensagem de voz" onPress={() => void startVoice()} />
+        ) : (
+          <IconButton name="send" active label="Enviar" onPress={() => void send()} />
+        )}
       </View>
     </View>
   );
@@ -374,6 +516,62 @@ function SheetItem({ label, onPress, danger }: { label: string; onPress: () => v
 }
 
 const styles = StyleSheet.create({
+  audio: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    marginTop: 4,
+    padding: space.sm,
+    borderRadius: 12,
+    backgroundColor: colors.surfaceRaised,
+    borderWidth: 1,
+    borderColor: colors.border,
+    maxWidth: 320,
+  },
+  voice: { borderRadius: 24 },
+  audioPlay: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playGlyph: {
+    width: 0,
+    height: 0,
+    marginLeft: 3,
+    borderLeftWidth: 12,
+    borderTopWidth: 8,
+    borderBottomWidth: 8,
+    borderLeftColor: colors.accentText,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+  },
+  pauseGlyph: { width: 12, height: 14, borderLeftWidth: 4, borderRightWidth: 4, borderColor: colors.accentText },
+  audioTrack: { height: 4, borderRadius: 2, backgroundColor: colors.surfaceHover, overflow: 'hidden' },
+  audioFill: { height: '100%', backgroundColor: colors.accent },
+  video: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    marginTop: 4,
+    padding: space.sm,
+    borderRadius: 12,
+    backgroundColor: '#000',
+    borderWidth: 1,
+    borderColor: colors.border,
+    maxWidth: 320,
+  },
+  videoPlay: {
+    width: 56,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.danger },
   upload: { marginTop: 6, gap: 4 },
   uploadTrack: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceHover, overflow: 'hidden' },
   uploadFill: { height: '100%', backgroundColor: colors.accent },

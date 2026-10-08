@@ -473,6 +473,50 @@ async fn upload_size_limit() {
 }
 
 #[tokio::test]
+async fn videos_play_inline_with_range_requests() {
+    let s = TestServer::start().await;
+    let a = s.register("cineasta").await;
+    let b = s.register("plateia").await;
+    let dm = s.dm(&a, &b).await;
+    // Minimal ISO-BMFF header ("ftyp isom") followed by filler.
+    let mut mp4 = vec![
+        0x00, 0x00, 0x00, 0x18, b'f', b't', b'y', b'p', b'i', b's', b'o', b'm', 0x00, 0x00, 0x02, 0x00, b'i', b's',
+        b'o', b'm', b'i', b's', b'o', b'2',
+    ];
+    mp4.extend(std::iter::repeat_n(0u8, 4000));
+    let (status, att) = a
+        .upload(&format!("/api/conversations/{dm}/attachments"), "clipe.mp4", mp4)
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(att["content_type"], "video/mp4");
+    let (status, msg) = a
+        .post(
+            &format!("/api/conversations/{dm}/messages"),
+            json!({ "content": "", "attachment_ids": [att["id"]] }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{msg}");
+    let url = msg["attachments"][0]["url"].as_str().unwrap();
+    // What a <video> element sends to start playing / seek.
+    let res = s
+        .http
+        .get(format!("{}{url}", s.base))
+        .header("range", "bytes=0-99")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(res.headers()["content-type"], "video/mp4");
+    assert!(
+        res.headers()["content-disposition"]
+            .to_str()
+            .unwrap()
+            .starts_with("inline")
+    );
+    assert_eq!(res.bytes().await.unwrap().len(), 100);
+}
+
+#[tokio::test]
 async fn upload_without_limit() {
     // 0 = no size limit: a file far above the default test limit goes through.
     let s = TestServer::start_with(|c| c.max_upload_size = 0).await;

@@ -146,6 +146,23 @@ pub fn content_disposition(file_name: &str, inline: bool) -> String {
 
 /// Image types we render inline. Everything else is served as a download with
 /// `application/octet-stream` to avoid any chance of executing content.
+/// Video/audio played inline by the apps (`<video>`/`<audio>`, seeking via
+/// Range requests). Media types cannot run script, so serving them inline is
+/// as safe as images; anything else is still forced to download.
+pub fn inline_media_mime(stored: Option<&str>) -> Option<&'static str> {
+    match stored? {
+        "video/mp4" | "video/quicktime" => Some("video/mp4"),
+        "video/webm" => Some("video/webm"),
+        "video/x-matroska" => Some("video/x-matroska"),
+        "audio/mpeg" => Some("audio/mpeg"),
+        "audio/ogg" => Some("audio/ogg"),
+        "audio/x-wav" | "audio/wav" => Some("audio/wav"),
+        "audio/x-flac" | "audio/flac" => Some("audio/flac"),
+        "audio/m4a" | "audio/mp4" | "audio/x-m4a" => Some("audio/mp4"),
+        _ => None,
+    }
+}
+
 pub fn inline_image_mime(sniffed: Option<&str>) -> Option<&'static str> {
     match sniffed? {
         "image/png" => Some("image/png"),

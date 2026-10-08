@@ -90,6 +90,22 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
 
+## 0.1.3 / 0.1.4 — atualização obrigatória, vídeo/áudio no chat, mensagens de voz
+
+- 0.1.3: atualização **obrigatória ao abrir** (Windows: tela "Atualizando para o Nexus X",
+  instala e reabre; Android: tela "Atualização obrigatória"); offline abre normalmente. No
+  Windows o app na bandeja checa a cada 1 h e instala escondido ou ao reabrir (nunca em call).
+  O número 0.1.2.1 pedido não é possível (Cargo/Tauri/updater exigem X.Y.Z) → 0.1.3.
+- Servidor: vídeo (mp4/webm/mov/mkv) e áudio (mp3/ogg/wav/flac/m4a) servidos **inline** com
+  Range (teste `videos_play_inline_with_range_requests`); demais tipos continuam download.
+- Windows: player de vídeo no chat (fallback para download se o codec não tocar, ex. HEVC),
+  player compacto de áudio, **mensagens de voz** (botão de microfone quando o campo está vazio,
+  WebM/Opus 48 kbps, mesmo microfone/AEC/NS das calls, máx. 10 min). Testado: vídeo e voz
+  gerados no navegador embutido (tocam, seek via 206, duração corrigida); fluxo completo de
+  gravação na cópia de teste com microfone simulado do WebView2.
+- Android: mensagens de voz (MediaRecorder AAC/M4A) e player nativo (MediaPlayer) no chat;
+  vídeo abre no player do celular. Compila; **não testado em aparelho**.
+
 ## 0.1.2 — anexos sem limite e arrastar arquivos
 
 - `MAX_UPLOAD_SIZE=0` (novo padrão) = sem limite por arquivo; o upload já era em streaming para
