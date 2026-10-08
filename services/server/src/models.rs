@@ -136,6 +136,16 @@ pub struct Relationships {
 pub enum ConversationKind {
     Dm,
     Group,
+    /// Server text channel.
+    Text,
+    /// Server voice channel.
+    Voice,
+}
+
+impl ConversationKind {
+    pub fn is_channel(self) -> bool {
+        matches!(self, Self::Text | Self::Voice)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -147,6 +157,15 @@ pub struct Conversation {
     pub members: Vec<PublicUser>,
     pub last_message_id: Option<String>,
     pub created_at: i64,
+    /// Server channels only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
 }
 
 /// Conversation plus per-viewer read state.
@@ -156,6 +175,95 @@ pub struct ConversationView {
     pub conversation: Conversation,
     pub last_read_message_id: Option<String>,
     pub unread_count: i64,
+    /// Server channels: the viewer's effective permissions (see permissions.rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerRole {
+    pub id: String,
+    pub name: String,
+    /// 0xRRGGBB; 0 = no color.
+    pub color: i64,
+    pub position: i64,
+    pub permissions: i64,
+    /// Shown as its own group in the member list.
+    pub hoist: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerCategory {
+    pub id: String,
+    pub name: String,
+    pub position: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PermissionOverwrite {
+    /// Category or channel id.
+    pub target_id: String,
+    pub role_id: String,
+    pub allow: i64,
+    pub deny: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerMember {
+    pub user: PublicUser,
+    pub nickname: Option<String>,
+    /// Without @everyone.
+    pub role_ids: Vec<String>,
+    pub joined_at: i64,
+}
+
+/// A server as seen by one member: only the channels they can view, with
+/// their permissions in each.
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerView {
+    pub id: String,
+    pub name: String,
+    pub icon_url: Option<String>,
+    pub owner_id: String,
+    pub created_at: i64,
+    /// The viewer's server-level permissions.
+    pub permissions: i64,
+    /// Highest first; the last one is @everyone (id = server id).
+    pub roles: Vec<ServerRole>,
+    pub categories: Vec<ServerCategory>,
+    pub channels: Vec<ConversationView>,
+    pub overwrites: Vec<PermissionOverwrite>,
+    pub members: Vec<ServerMember>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerInvite {
+    pub code: String,
+    pub server_id: String,
+    pub created_by: Option<String>,
+    pub max_uses: Option<i64>,
+    pub uses: i64,
+    pub expires_at: Option<i64>,
+    pub created_at: i64,
+}
+
+/// What someone holding an invite code sees before joining.
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerInvitePreview {
+    pub code: String,
+    pub server_id: String,
+    pub name: String,
+    pub icon_url: Option<String>,
+    pub member_count: i64,
+    pub already_member: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerBan {
+    pub user: PublicUser,
+    pub reason: Option<String>,
+    pub banned_by: Option<String>,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]

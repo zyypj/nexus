@@ -49,6 +49,16 @@ pub async fn upload(
     state.limiter.check("upload", &user.id, rules::UPLOAD)?;
     let kind = require_member(&state.db, &conversation_id, &user.id).await?;
     ensure_dm_not_blocked(&state.db, &conversation_id, kind, &user.id).await?;
+    if kind.is_channel() {
+        crate::permissions::require_channel_perm(
+            &state.db,
+            &conversation_id,
+            &user.id,
+            crate::permissions::SEND_MESSAGES | crate::permissions::ATTACH_FILES,
+            "you cannot attach files in this channel",
+        )
+        .await?;
+    }
     let max = match state.config.max_upload_size {
         0 => u64::MAX,
         n => n,

@@ -34,7 +34,27 @@ pub const CALL_LEAVE: &str = "CALL_LEAVE";
 pub const CALL_STATE_UPDATE: &str = "CALL_STATE_UPDATE";
 pub const CALL_END: &str = "CALL_END";
 
+pub const SERVER_CREATE: &str = "SERVER_CREATE";
+pub const SERVER_UPDATE: &str = "SERVER_UPDATE";
+pub const SERVER_DELETE: &str = "SERVER_DELETE";
+
+/// Who receives a conversation's events: the members of a DM/group, or every
+/// server member who can view the channel.
 pub async fn conversation_members(db: &Db, conversation_id: &str) -> ApiResult<Vec<String>> {
+    if let Some((server_id, category_id)) = crate::permissions::channel_location(db, conversation_id).await? {
+        let snap = crate::permissions::Snapshot::load(db, &server_id).await?;
+        return Ok(snap
+            .member_roles
+            .keys()
+            .filter(|u| {
+                snap.ctx(u).is_some_and(|ctx| {
+                    snap.channel_perms(&ctx, category_id.as_deref(), conversation_id) & crate::permissions::VIEW_CHANNEL
+                        != 0
+                })
+            })
+            .cloned()
+            .collect());
+    }
     let rows: Vec<(String,)> = sqlx::query_as("SELECT user_id FROM conversation_members WHERE conversation_id = ?")
         .bind(conversation_id)
         .fetch_all(db)
@@ -43,14 +63,17 @@ pub async fn conversation_members(db: &Db, conversation_id: &str) -> ApiResult<V
 }
 
 /// Users who may see `user_id`'s presence and profile: friends plus anyone
-/// sharing a conversation. Includes the user themself (other devices).
+/// sharing a conversation or a server. Includes the user themself (other devices).
 pub async fn user_audience(db: &Db, user_id: &str) -> ApiResult<Vec<String>> {
     let rows: Vec<(String,)> = sqlx::query_as(
         "SELECT user_b FROM friendships WHERE user_a = ?1
          UNION SELECT user_a FROM friendships WHERE user_b = ?1
          UNION SELECT DISTINCT m2.user_id FROM conversation_members m1
                JOIN conversation_members m2 ON m2.conversation_id = m1.conversation_id
-               WHERE m1.user_id = ?1",
+               WHERE m1.user_id = ?1
+         UNION SELECT DISTINCT s2.user_id FROM server_members s1
+               JOIN server_members s2 ON s2.server_id = s1.server_id
+               WHERE s1.user_id = ?1",
     )
     .bind(user_id)
     .fetch_all(db)

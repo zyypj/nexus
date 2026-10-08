@@ -22,30 +22,68 @@ use crate::{
 pub const MAX_GROUP_MEMBERS: usize = 25;
 
 #[derive(sqlx::FromRow)]
-struct ConversationRow {
-    id: String,
-    kind: String,
-    name: Option<String>,
-    owner_id: Option<String>,
-    last_message_id: Option<String>,
-    created_at: i64,
+pub struct ConversationRow {
+    pub id: String,
+    pub kind: String,
+    pub name: Option<String>,
+    pub owner_id: Option<String>,
+    pub last_message_id: Option<String>,
+    pub created_at: i64,
+    pub server_id: Option<String>,
+    pub category_id: Option<String>,
+    pub position: i64,
+    pub topic: Option<String>,
 }
 
-fn kind_of(s: &str) -> ConversationKind {
-    if s == "dm" {
-        ConversationKind::Dm
-    } else {
-        ConversationKind::Group
+/// Columns of [`ConversationRow`] (a macro so queries stay static strings).
+#[macro_export]
+macro_rules! conversation_columns {
+    () => {
+        "id, kind, name, owner_id, last_message_id, created_at, server_id, category_id, position, topic"
+    };
+}
+
+pub fn kind_of(s: &str) -> ConversationKind {
+    match s {
+        "dm" => ConversationKind::Dm,
+        "text" => ConversationKind::Text,
+        "voice" => ConversationKind::Voice,
+        _ => ConversationKind::Group,
+    }
+}
+
+impl ConversationRow {
+    /// A server channel (no member list: access comes from the server).
+    pub fn into_channel(self) -> Conversation {
+        Conversation {
+            id: self.id,
+            kind: kind_of(&self.kind),
+            name: self.name,
+            owner_id: None,
+            members: Vec::new(),
+            last_message_id: self.last_message_id,
+            created_at: self.created_at,
+            position: Some(self.position),
+            server_id: self.server_id,
+            category_id: self.category_id,
+            topic: self.topic,
+        }
     }
 }
 
 pub async fn load_conversation(db: &Db, id: &str) -> ApiResult<Conversation> {
-    let row: Option<ConversationRow> =
-        sqlx::query_as("SELECT id, kind, name, owner_id, last_message_id, created_at FROM conversations WHERE id = ?")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+    let row: Option<ConversationRow> = sqlx::query_as(concat!(
+        "SELECT ",
+        crate::conversation_columns!(),
+        " FROM conversations WHERE id = ?"
+    ))
+    .bind(id)
+    .fetch_optional(db)
+    .await?;
     let row = row.ok_or(ApiError::NotFound("conversation"))?;
+    if row.server_id.is_some() {
+        return Ok(row.into_channel());
+    }
     let members: Vec<UserRow> = sqlx::query_as(concat!(
         "SELECT ",
         crate::user_columns!(),
@@ -63,11 +101,79 @@ pub async fn load_conversation(db: &Db, id: &str) -> ApiResult<Conversation> {
         members: members.into_iter().map(PublicUser::from).collect(),
         last_message_id: row.last_message_id,
         created_at: row.created_at,
+        server_id: None,
+        category_id: None,
+        position: None,
+        topic: None,
     })
+}
+
+/// Read state + unread count of a server channel for one user.
+pub async fn channel_view(
+    db: &Db,
+    channel: Conversation,
+    viewer: &str,
+    permissions: i64,
+) -> ApiResult<ConversationView> {
+    let row: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT last_read_message_id FROM channel_reads WHERE channel_id = ? AND user_id = ?")
+            .bind(&channel.id)
+            .bind(viewer)
+            .fetch_optional(db)
+            .await?;
+    let last_read = row.and_then(|r| r.0);
+    // Text channels count unread; voice channels have no chat. Joining a
+    // server seeds the read markers (see servers::seed_reads), so a new member
+    // does not start with every old message unread.
+    let unread_count = if channel.kind == ConversationKind::Text {
+        unread_count(db, &channel.id, viewer, last_read.as_deref()).await?
+    } else {
+        0
+    };
+    Ok(ConversationView {
+        conversation: channel,
+        last_read_message_id: last_read,
+        unread_count,
+        permissions: Some(permissions),
+    })
+}
+
+/// Moves a channel read marker forward (never backwards).
+pub async fn mark_channel_read<'e, E: sqlx::SqliteExecutor<'e>>(
+    db: E,
+    channel_id: &str,
+    user_id: &str,
+    message_id: &str,
+) -> ApiResult<()> {
+    sqlx::query(
+        "INSERT INTO channel_reads (channel_id, user_id, last_read_message_id) VALUES (?1, ?2, ?3)
+         ON CONFLICT (channel_id, user_id) DO UPDATE SET last_read_message_id = excluded.last_read_message_id
+         WHERE channel_reads.last_read_message_id IS NULL OR channel_reads.last_read_message_id < excluded.last_read_message_id",
+    )
+    .bind(channel_id)
+    .bind(user_id)
+    .bind(message_id)
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 pub async fn conversation_view(db: &Db, id: &str, viewer: &str) -> ApiResult<ConversationView> {
     let conversation = load_conversation(db, id).await?;
+    if let Some(server_id) = conversation.server_id.clone() {
+        let perms = crate::permissions::channel_permissions(
+            db,
+            &server_id,
+            conversation.category_id.as_deref(),
+            &conversation.id,
+            viewer,
+        )
+        .await?;
+        if perms & crate::permissions::VIEW_CHANNEL == 0 {
+            return Err(ApiError::NotFound("conversation"));
+        }
+        return channel_view(db, conversation, viewer, perms).await;
+    }
     let row: Option<(Option<String>,)> = sqlx::query_as(
         "SELECT last_read_message_id FROM conversation_members WHERE conversation_id = ? AND user_id = ?",
     )
@@ -81,10 +187,11 @@ pub async fn conversation_view(db: &Db, id: &str, viewer: &str) -> ApiResult<Con
         conversation,
         last_read_message_id: last_read,
         unread_count,
+        permissions: None,
     })
 }
 
-async fn unread_count(db: &Db, conversation_id: &str, viewer: &str, last_read: Option<&str>) -> ApiResult<i64> {
+pub async fn unread_count(db: &Db, conversation_id: &str, viewer: &str, last_read: Option<&str>) -> ApiResult<i64> {
     // Capped: the UI shows "99+" anyway and this keeps the query bounded.
     let (n,): (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM (SELECT 1 FROM messages
@@ -113,10 +220,25 @@ pub async fn list_for_user(db: &Db, user_id: &str) -> ApiResult<Vec<Conversation
     Ok(out)
 }
 
-/// Returns the conversation kind when `user_id` is a member, 404 otherwise
-/// (non-members cannot even learn that the conversation exists).
+/// Returns the conversation kind when `user_id` is a member (for server
+/// channels: can view it), 404 otherwise (non-members cannot even learn that
+/// the conversation exists).
 pub async fn require_member(db: &Db, conversation_id: &str, user_id: &str) -> ApiResult<ConversationKind> {
     validate_id(conversation_id)?;
+    let channel: Option<(String, Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT kind, server_id, category_id FROM conversations WHERE id = ?")
+            .bind(conversation_id)
+            .fetch_optional(db)
+            .await?;
+    if let Some((kind, Some(server_id), category_id)) = channel {
+        let perms =
+            crate::permissions::channel_permissions(db, &server_id, category_id.as_deref(), conversation_id, user_id)
+                .await?;
+        if perms & crate::permissions::VIEW_CHANNEL == 0 {
+            return Err(ApiError::NotFound("conversation"));
+        }
+        return Ok(kind_of(&kind));
+    }
     let row: Option<(String,)> = sqlx::query_as(
         "SELECT c.kind FROM conversations c JOIN conversation_members m ON m.conversation_id = c.id
          WHERE c.id = ? AND m.user_id = ?",
@@ -435,7 +557,7 @@ pub async fn remove_member(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn delete_conversation_files(state: &AppState, conversation_id: &str) -> ApiResult<()> {
+pub async fn delete_conversation_files(state: &AppState, conversation_id: &str) -> ApiResult<()> {
     let files: Vec<(String,)> =
         sqlx::query_as("SELECT storage_name FROM message_attachments WHERE conversation_id = ?")
             .bind(conversation_id)
@@ -460,7 +582,7 @@ pub async fn ack(
     Path(id): Path<String>,
     ApiJson(body): ApiJson<Ack>,
 ) -> ApiResult<StatusCode> {
-    require_member(&state.db, &id, &user.id).await?;
+    let kind = require_member(&state.db, &id, &user.id).await?;
     validate_id(&body.message_id)?;
     let exists: Option<(i64,)> = sqlx::query_as("SELECT 1 FROM messages WHERE id = ? AND conversation_id = ?")
         .bind(&body.message_id)
@@ -469,6 +591,15 @@ pub async fn ack(
         .await?;
     if exists.is_none() {
         return Err(ApiError::NotFound("message"));
+    }
+    if kind.is_channel() {
+        mark_channel_read(&state.db, &id, &user.id, &body.message_id).await?;
+        state.hub.send_one(
+            &user.id,
+            events::CONVERSATION_READ,
+            &json!({ "conversation_id": id, "message_id": body.message_id }),
+        );
+        return Ok(StatusCode::NO_CONTENT);
     }
     // Never move the read marker backwards.
     sqlx::query(

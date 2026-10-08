@@ -65,6 +65,8 @@ pub struct Ready {
     pub conversations: Vec<ConversationView>,
     pub presences: Vec<PresenceUpdate>,
     pub calls: Vec<Call>,
+    /// Servers (guilds) the user belongs to, as they see them.
+    pub servers: Vec<crate::models::ServerView>,
     pub server: ServerInfo,
 }
 
@@ -168,6 +170,7 @@ pub async fn build_ready(state: &AppState, user: &AuthUser) -> ApiResult<Ready> 
         conversations,
         presences,
         calls: active_calls_for_user(&state.db, &user.id).await?,
+        servers: crate::routes::servers::servers_for_user(&state.db, &user.id).await?,
         server: ServerInfo {
             name: state.config.app_name.clone(),
             version: env!("CARGO_PKG_VERSION"),

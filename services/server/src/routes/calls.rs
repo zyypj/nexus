@@ -91,7 +91,7 @@ pub async fn load_call(db: &Db, call_id: &str) -> ApiResult<Call> {
     })
 }
 
-async fn active_call_id(db: &Db, conversation_id: &str) -> ApiResult<Option<String>> {
+pub async fn active_call_id(db: &Db, conversation_id: &str) -> ApiResult<Option<String>> {
     let row: Option<(String,)> = sqlx::query_as("SELECT id FROM calls WHERE conversation_id = ? AND ended_at IS NULL")
         .bind(conversation_id)
         .fetch_optional(db)
@@ -99,18 +99,30 @@ async fn active_call_id(db: &Db, conversation_id: &str) -> ApiResult<Option<Stri
     Ok(row.map(|r| r.0))
 }
 
-/// Active calls in every conversation the user belongs to (for READY).
+/// Active calls in every conversation the user belongs to, plus voice
+/// channels they can see (for READY).
 pub async fn active_calls_for_user(db: &Db, user_id: &str) -> ApiResult<Vec<Call>> {
     let ids: Vec<(String,)> = sqlx::query_as(
         "SELECT c.id FROM calls c JOIN conversation_members m ON m.conversation_id = c.conversation_id
-         WHERE m.user_id = ? AND c.ended_at IS NULL ORDER BY c.created_at",
+         WHERE m.user_id = ?1 AND c.ended_at IS NULL
+         UNION ALL
+         SELECT c.id FROM calls c JOIN conversations v ON v.id = c.conversation_id
+         JOIN server_members s ON s.server_id = v.server_id
+         WHERE s.user_id = ?1 AND c.ended_at IS NULL",
     )
     .bind(user_id)
     .fetch_all(db)
     .await?;
     let mut out = Vec::with_capacity(ids.len());
     for (id,) in ids {
-        out.push(load_call(db, &id).await?);
+        let call = load_call(db, &id).await?;
+        // Server channels: only those the user can view.
+        if crate::routes::conversations::require_member(db, &call.conversation_id, user_id)
+            .await
+            .is_ok()
+        {
+            out.push(call);
+        }
     }
     Ok(out)
 }
@@ -143,6 +155,19 @@ pub async fn start(
     livekit_cfg(&state)?;
     let kind = require_member(&state.db, &conversation_id, &user.id).await?;
     ensure_dm_not_blocked(&state.db, &conversation_id, kind, &user.id).await?;
+    if kind == ConversationKind::Text {
+        return Err(ApiError::bad("calls happen in voice channels"));
+    }
+    if kind == ConversationKind::Voice {
+        crate::permissions::require_channel_perm(
+            &state.db,
+            &conversation_id,
+            &user.id,
+            crate::permissions::CONNECT,
+            "you cannot connect to this channel",
+        )
+        .await?;
+    }
 
     if let Some(call_id) = active_call_id(&state.db, &conversation_id).await? {
         return Ok((StatusCode::OK, Json(join_internal(&state, &user, &call_id).await?)));
@@ -196,6 +221,23 @@ async fn join_internal(state: &AppState, user: &AuthUser, call_id: &str) -> ApiR
     if call.ended_at.is_some() {
         return Err(ApiError::Conflict("call has ended"));
     }
+    // Voice channels: CONNECT to join; SPEAK / VIDEO decide what may be published.
+    let mut sources: Vec<&str> = livekit::PUBLISH_SOURCES.to_vec();
+    if kind.is_channel() {
+        let p = crate::permissions::require_channel_perm(
+            &state.db,
+            &call.conversation_id,
+            &user.id,
+            crate::permissions::CONNECT,
+            "you cannot connect to this channel",
+        )
+        .await?;
+        sources.retain(|s| match *s {
+            "microphone" => p & crate::permissions::SPEAK != 0,
+            "camera" | "screen_share" | "screen_share_audio" => p & crate::permissions::VIDEO != 0,
+            _ => true,
+        });
+    }
 
     // One call at a time: joining here leaves any other call.
     let other_calls: Vec<(String,)> =
@@ -246,7 +288,7 @@ async fn join_internal(state: &AppState, user: &AuthUser, call_id: &str) -> ApiR
     }
 
     let profile = load_user(&state.db, &user.id).await?;
-    let token = livekit::join_token(lk, &call.room_name, &user.id, &profile.display_name)?;
+    let token = livekit::join_token_with(lk, &call.room_name, &user.id, &profile.display_name, &sources)?;
     Ok(CallJoin {
         call: load_call(&state.db, call_id).await?,
         livekit_url: lk.url.clone(),
@@ -395,6 +437,16 @@ pub async fn end(State(state): State<AppState>, user: AuthUser, Path(call_id): P
             let conv = load_conversation(&state.db, &call.conversation_id).await?;
             call.started_by.as_deref() == Some(user.id.as_str()) || conv.owner_id.as_deref() == Some(user.id.as_str())
         }
+        // Voice channels empty out on their own; ending one for everybody is moderation.
+        ConversationKind::Text | ConversationKind::Voice => crate::permissions::require_channel_perm(
+            &state.db,
+            &call.conversation_id,
+            &user.id,
+            crate::permissions::MANAGE_CHANNELS,
+            "",
+        )
+        .await
+        .is_ok(),
     };
     if !allowed {
         return Err(ApiError::Forbidden("only the caller or group owner can end this call"));

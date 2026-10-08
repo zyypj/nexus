@@ -59,6 +59,18 @@ pub const PUBLISH_SOURCES: [&str; 4] = ["microphone", "camera", "screen_share", 
 /// A token that only allows joining `room`. Identity = Nexus user id, so
 /// clients map LiveKit participants back to users without extra lookups.
 pub fn join_token(cfg: &LiveKitConfig, room: &str, identity: &str, name: &str) -> anyhow::Result<String> {
+    join_token_with(cfg, room, identity, name, &PUBLISH_SOURCES)
+}
+
+/// Like `join_token`, limited to `sources` (server channel permissions: no
+/// SPEAK → no microphone, no VIDEO → no camera/screen). Empty = listen only.
+pub fn join_token_with(
+    cfg: &LiveKitConfig,
+    room: &str,
+    identity: &str,
+    name: &str,
+    sources: &[&str],
+) -> anyhow::Result<String> {
     let now = crate::db::now_ms() / 1000;
     let claims = Claims {
         iss: cfg.api_key.clone(),
@@ -70,10 +82,10 @@ pub fn join_token(cfg: &LiveKitConfig, room: &str, identity: &str, name: &str) -
         video: VideoGrant {
             room: Some(room.to_string()),
             room_join: true,
-            can_publish: Some(true),
+            can_publish: Some(!sources.is_empty()),
             can_subscribe: Some(true),
             can_publish_data: Some(true),
-            can_publish_sources: PUBLISH_SOURCES.iter().map(|s| s.to_string()).collect(),
+            can_publish_sources: sources.iter().map(|s| s.to_string()).collect(),
             ..Default::default()
         },
         sha256: String::new(),

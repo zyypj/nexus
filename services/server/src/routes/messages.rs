@@ -230,6 +230,22 @@ pub async fn create(
     state.limiter.check("message", &user.id, rules::MESSAGE)?;
     let kind = require_member(&state.db, &conversation_id, &user.id).await?;
     ensure_dm_not_blocked(&state.db, &conversation_id, kind, &user.id).await?;
+    if kind == ConversationKind::Voice {
+        return Err(ApiError::bad("voice channels have no chat"));
+    }
+    if kind.is_channel() {
+        let p = crate::permissions::require_channel_perm(
+            &state.db,
+            &conversation_id,
+            &user.id,
+            crate::permissions::SEND_MESSAGES,
+            "you cannot send messages in this channel",
+        )
+        .await?;
+        if !body.attachment_ids.is_empty() && p & crate::permissions::ATTACH_FILES == 0 {
+            return Err(ApiError::Forbidden("you cannot attach files in this channel"));
+        }
+    }
     let content = validate_content(&body.content)?;
     if body.attachment_ids.len() > MAX_ATTACHMENTS {
         return Err(ApiError::bad(format!(
@@ -287,12 +303,18 @@ pub async fn create(
         .execute(&mut *tx)
         .await?;
     // Your own message counts as read.
-    sqlx::query("UPDATE conversation_members SET last_read_message_id = ? WHERE conversation_id = ? AND user_id = ?")
+    if kind.is_channel() {
+        super::conversations::mark_channel_read(&mut *tx, &conversation_id, &user.id, &id).await?;
+    } else {
+        sqlx::query(
+            "UPDATE conversation_members SET last_read_message_id = ? WHERE conversation_id = ? AND user_id = ?",
+        )
         .bind(&id)
         .bind(&conversation_id)
         .bind(&user.id)
         .execute(&mut *tx)
         .await?;
+    }
     tx.commit().await?;
 
     let message = load_message(&state.db, &state.storage, &conversation_id, &id).await?;
@@ -366,7 +388,17 @@ pub async fn delete(
             .fetch_optional(&state.db)
             .await?;
         let is_owner = kind == ConversationKind::Group && owner.and_then(|o| o.0).as_deref() == Some(user.id.as_str());
-        if !is_owner {
+        let moderator = kind.is_channel()
+            && crate::permissions::require_channel_perm(
+                &state.db,
+                &conversation_id,
+                &user.id,
+                crate::permissions::MANAGE_MESSAGES,
+                "",
+            )
+            .await
+            .is_ok();
+        if !is_owner && !moderator {
             return Err(ApiError::Forbidden("you can only delete your own messages"));
         }
     }
@@ -424,6 +456,16 @@ pub async fn add_reaction(
     state.limiter.check("message", &user.id, rules::MESSAGE)?;
     let kind = require_member(&state.db, &conversation_id, &user.id).await?;
     ensure_dm_not_blocked(&state.db, &conversation_id, kind, &user.id).await?;
+    if kind.is_channel() {
+        crate::permissions::require_channel_perm(
+            &state.db,
+            &conversation_id,
+            &user.id,
+            crate::permissions::ADD_REACTIONS,
+            "you cannot react in this channel",
+        )
+        .await?;
+    }
     validate_id(&message_id)?;
     let emoji = validate_emoji(&emoji)?;
     let exists: Option<(i64,)> = sqlx::query_as("SELECT 1 FROM messages WHERE id = ? AND conversation_id = ?")

@@ -6,6 +6,7 @@ pub mod common;
 pub mod conversations;
 pub mod friends;
 pub mod messages;
+pub mod servers;
 pub mod users;
 
 use axum::{
@@ -109,6 +110,57 @@ pub fn router(state: AppState) -> Router {
         .route("/calls/{id}/end", post(calls::end))
         .route("/calls/{id}/state", patch(calls::update_state))
         .route("/livekit/webhook", post(calls::livekit_webhook))
+        // servers
+        .route("/servers", post(servers::create))
+        .route(
+            "/servers/{id}",
+            get(servers::get).patch(servers::update).delete(servers::delete),
+        )
+        .route(
+            "/servers/{id}/icon",
+            post(servers::upload_icon)
+                .delete(servers::delete_icon)
+                .layer(avatar_limit),
+        )
+        .route("/servers/{id}/transfer", post(servers::transfer))
+        .route("/servers/{id}/members/@me", delete(servers::leave))
+        .route(
+            "/servers/{id}/members/{user_id}",
+            patch(servers::update_member).delete(servers::kick),
+        )
+        .route("/servers/{id}/bans", get(servers::list_bans))
+        .route("/servers/{id}/bans/{user_id}", put(servers::ban).delete(servers::unban))
+        .route(
+            "/servers/{id}/invites",
+            get(servers::list_invites).post(servers::create_invite),
+        )
+        .route(
+            "/server-invites/{code}",
+            get(servers::preview_invite)
+                .post(servers::join)
+                .delete(servers::delete_invite),
+        )
+        .route("/servers/{id}/roles", post(servers::create_role))
+        .route("/servers/{id}/roles/order", put(servers::order_roles))
+        .route(
+            "/servers/{id}/roles/{role_id}",
+            patch(servers::update_role).delete(servers::delete_role),
+        )
+        .route("/servers/{id}/categories", post(servers::create_category))
+        .route(
+            "/servers/{id}/categories/{category_id}",
+            patch(servers::update_category).delete(servers::delete_category),
+        )
+        .route("/servers/{id}/channels", post(servers::create_channel))
+        .route(
+            "/servers/{id}/channels/{channel_id}",
+            patch(servers::update_channel).delete(servers::delete_channel),
+        )
+        .route("/servers/{id}/layout", put(servers::layout))
+        .route(
+            "/servers/{id}/overwrites/{target_id}/{role_id}",
+            put(servers::put_overwrite).delete(servers::delete_overwrite),
+        )
         // admin
         .route("/admin/invites", get(admin::list_invites).post(admin::create_invite))
         .route("/admin/invites/{code}", delete(admin::revoke_invite))
