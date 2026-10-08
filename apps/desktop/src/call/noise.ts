@@ -8,10 +8,10 @@ import { addWorkletOnce } from "./audioContext";
 let wasmBinary: Promise<ArrayBuffer> | null = null;
 
 /**
- * "Enhanced" noise suppression: RNNoise (a ~85k-parameter recurrent network,
+ * "Enhanced" noise suppression: RNNoise (a small recurrent network,
  * 10 ms frames at 48 kHz) running in an AudioWorklet via WASM SIMD.
- * Chosen over larger models (DeepFilterNet, GTCRN) because it costs a few
- * percent of one core; see docs/AUDIO.md for measurements.
+ * Chosen over heavier models (e.g. DeepFilterNet) because it measured
+ * ~0.5% of one core with 10 ms latency; see docs/AUDIO.md.
  *
  * Browser NS is turned off when this is active so the signal is not
  * processed twice; echo cancellation and AGC stay in WebRTC.

@@ -24,8 +24,19 @@ static QUITTING: AtomicBool = AtomicBool::new(false);
 /// Chromium flags for the WebView2 process:
 /// - keep wry's defaults (no Edge OOUI / SmartScreen helpers);
 /// - disable intensive timer throttling so the gateway heartbeat keeps
-///   running while the window is hidden in the tray.
-const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,IntensiveWakeUpThrottling";
+///   running while the window is hidden in the tray;
+/// - run the GPU service inside the browser process: measured -20 MB private
+///   memory and -80 ms startup (docs/BENCHMARKS.md), hardware decode intact.
+const BROWSER_ARGS: &str =
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,IntensiveWakeUpThrottling --in-process-gpu";
+
+/// `NEXUS_WEBVIEW_ARGS` appends Chromium flags (benchmarking experiments).
+fn browser_args() -> String {
+    match std::env::var("NEXUS_WEBVIEW_ARGS") {
+        Ok(extra) if !extra.trim().is_empty() => format!("{BROWSER_ARGS} {}", extra.trim()),
+        _ => BROWSER_ARGS.to_string(),
+    }
+}
 
 #[tauri::command]
 fn set_close_to_tray(enabled: bool) {
@@ -78,7 +89,7 @@ pub fn run() {
                 .title(&title)
                 .inner_size(1180.0, 760.0)
                 .min_inner_size(820.0, 520.0)
-                .additional_browser_args(BROWSER_ARGS)
+                .additional_browser_args(&browser_args())
                 // The WebView only ever loads our bundled UI, so media
                 // permissions are granted without WebView2's own prompt.
                 .on_permission_request(|_webview, kind| match kind {

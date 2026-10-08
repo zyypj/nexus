@@ -2,6 +2,8 @@
 resolver = "3"
 members = [
     "services/server",
+    "scripts/perf-bench",
+    "tests/noise-bench",
 ]
 # The Tauri crate is Windows-only and has its own lockfile/target so the
 # server workspace can be built and tested on Linux CI without WebView deps.

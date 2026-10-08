@@ -7,8 +7,9 @@ rtc:
   tcp_port: 7881
   # Single UDP port (UDP mux) instead of a 10k port range.
   udp_port: 7882
+  # No node_ip: LiveKit announces the machine's LAN addresses, which is what
+  # the UDP mux actually listens on (it does not bind loopback).
   use_external_ip: false
-  node_ip: 127.0.0.1
 room:
   empty_timeout: 60
   departure_timeout: 20

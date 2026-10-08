@@ -1,0 +1,162 @@
+{
+    "_comment": "LiveKit SFU for Nexus. Needs 2 allocations: primary (TCP signaling + UDP media) and one for ICE/TCP. See docs/PTERODACTYL.md.",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2026-10-07T00:00:00+00:00",
+    "name": "Nexus LiveKit",
+    "author": "admin@nexus.local",
+    "description": "Self-hosted LiveKit SFU (media only: WebRTC audio/video/screen share) configured for Pterodactyl with a single UDP port.",
+    "features": null,
+    "docker_images": {
+        "Nexus LiveKit (GHCR)": "ghcr.io/OWNER/nexus-livekit:latest"
+    },
+    "file_denylist": [],
+    "startup": "/livekit-server --config /home/container/livekit.yaml",
+    "config": {
+        "files": "{}",
+        "startup": "{\"done\": \"starting LiveKit server\"}",
+        "logs": "{}",
+        "stop": "^C"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\n# LiveKit ships inside the Docker image; nothing to download.\nmkdir -p /mnt/server\necho \"LiveKit config is generated at every start from the egg variables.\"\n",
+            "container": "debian:trixie-slim",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "API key",
+            "description": "Key name shared with the Nexus server.",
+            "env_variable": "LIVEKIT_API_KEY",
+            "default_value": "nexus",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|alpha_dash|max:64",
+            "field_type": "text"
+        },
+        {
+            "name": "API secret",
+            "description": "Random secret, at least 32 characters (e.g. openssl rand -hex 32). Same value in the Nexus egg.",
+            "env_variable": "LIVEKIT_API_SECRET",
+            "default_value": "",
+            "user_viewable": false,
+            "user_editable": true,
+            "rules": "required|string|min:32|max:256",
+            "field_type": "text"
+        },
+        {
+            "name": "Public IP",
+            "description": "Public IPv4 of the node, announced to clients. Empty = discover via STUN.",
+            "env_variable": "LIVEKIT_PUBLIC_IP",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|ip",
+            "field_type": "text"
+        },
+        {
+            "name": "Domain",
+            "description": "Optional domain (needed only for TURN/TLS).",
+            "env_variable": "LIVEKIT_DOMAIN",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:255",
+            "field_type": "text"
+        },
+        {
+            "name": "Signaling port",
+            "description": "Empty = primary allocation (recommended). TCP for signaling.",
+            "env_variable": "LIVEKIT_PORT",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|integer|between:1,65535",
+            "field_type": "text"
+        },
+        {
+            "name": "UDP media port",
+            "description": "Empty = same number as the primary allocation (its UDP side). All WebRTC UDP goes through this one port.",
+            "env_variable": "LIVEKIT_UDP_PORT",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|integer|between:1,65535",
+            "field_type": "text"
+        },
+        {
+            "name": "ICE/TCP port",
+            "description": "Port of the SECOND allocation, used when a network blocks UDP.",
+            "env_variable": "LIVEKIT_TCP_PORT",
+            "default_value": "7881",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:1,65535",
+            "field_type": "text"
+        },
+        {
+            "name": "Webhook URL",
+            "description": "Nexus webhook, e.g. http://203.0.113.5:3000/api/livekit/webhook (keeps call state correct when a client crashes).",
+            "env_variable": "LIVEKIT_WEBHOOK_URL",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:255",
+            "field_type": "text"
+        },
+        {
+            "name": "Max participants per room",
+            "description": "Per-call limit.",
+            "env_variable": "LIVEKIT_MAX_PARTICIPANTS",
+            "default_value": "25",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:2,100",
+            "field_type": "text"
+        },
+        {
+            "name": "Enable TURN",
+            "description": "Embedded TURN for very restrictive networks. Needs an extra allocation (and a certificate for TLS).",
+            "env_variable": "LIVEKIT_TURN_ENABLED",
+            "default_value": "false",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:true,false",
+            "field_type": "text"
+        },
+        {
+            "name": "TURN UDP port",
+            "description": "Third allocation for TURN/UDP (optional).",
+            "env_variable": "LIVEKIT_TURN_UDP_PORT",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|integer|between:1,65535",
+            "field_type": "text"
+        },
+        {
+            "name": "TURN TLS port",
+            "description": "Allocation for TURN/TLS (optional, needs cert/key files).",
+            "env_variable": "LIVEKIT_TURN_TLS_PORT",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|integer|between:1,65535",
+            "field_type": "text"
+        },
+        {
+            "name": "Log level",
+            "description": "debug, info, warn or error.",
+            "env_variable": "LOG_LEVEL",
+            "default_value": "info",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:debug,info,warn,error",
+            "field_type": "text"
+        }
+    ]
+}

@@ -24,9 +24,13 @@ fn init_tracing(level: &str) {
     // sqlx logs every statement at info; keep it quiet unless asked.
     let filter =
         EnvFilter::try_new(format!("{level},sqlx=warn,tower_http=warn")).unwrap_or_else(|_| EnvFilter::new("info"));
+    // Colours only on a real terminal (and never with NO_COLOR), so panel
+    // consoles and log files get plain text.
+    let ansi = std::env::var_os("NO_COLOR").is_none() && std::io::IsTerminal::is_terminal(&std::io::stdout());
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)
+        .with_ansi(ansi)
         .init();
 }
 

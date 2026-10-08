@@ -150,6 +150,35 @@ pub async fn remove_participant(
     .await
 }
 
+/// Whether `identity` is currently connected to `room` (authoritative check
+/// used before acting on a possibly stale `participant_left` webhook).
+pub async fn participant_present(
+    http: &reqwest::Client,
+    cfg: &LiveKitConfig,
+    room: &str,
+    identity: &str,
+) -> anyhow::Result<bool> {
+    #[derive(Deserialize)]
+    struct Listed {
+        #[serde(default)]
+        participants: Vec<WebhookParticipant>,
+    }
+    let res = http
+        .post(format!("{}/twirp/livekit.RoomService/ListParticipants", cfg.api_url))
+        .bearer_auth(admin_token(cfg, room)?)
+        .json(&serde_json::json!({ "room": room }))
+        .send()
+        .await?;
+    if res.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(false);
+    }
+    if !res.status().is_success() {
+        anyhow::bail!("LiveKit ListParticipants failed with {}", res.status());
+    }
+    let listed: Listed = res.json().await?;
+    Ok(listed.participants.iter().any(|p| p.identity == identity))
+}
+
 pub async fn delete_room(http: &reqwest::Client, cfg: &LiveKitConfig, room: &str) -> anyhow::Result<()> {
     room_service(http, cfg, "DeleteRoom", room, serde_json::json!({ "room": room })).await
 }

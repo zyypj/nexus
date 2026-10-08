@@ -171,7 +171,7 @@ pub async fn start(
     }
     let call = load_call(&state.db, &call_id).await?;
     broadcast(&state, &conversation_id, events::CALL_CREATE, &json!(call)).await?;
-    spawn_empty_call_reaper(state.clone(), call_id.clone());
+    spawn_empty_call_reaper(state.clone(), call_id.clone(), EMPTY_CALL_GRACE);
     Ok((StatusCode::CREATED, Json(join_internal(&state, &user, &call_id).await?)))
 }
 
@@ -205,7 +205,7 @@ async fn join_internal(state: &AppState, user: &AuthUser, call_id: &str) -> ApiR
             .fetch_all(&state.db)
             .await?;
     for (other,) in other_calls {
-        leave_internal(state, &other, &user.id, true).await?;
+        leave_internal(state, &other, &user.id, Leave::REMOVED).await?;
     }
 
     let already: Option<(i64,)> =
@@ -260,13 +260,49 @@ pub async fn leave(
     Path(call_id): Path<String>,
 ) -> ApiResult<StatusCode> {
     validate_id(&call_id)?;
-    leave_internal(&state, &call_id, &user.id, false).await?;
+    leave_internal(&state, &call_id, &user.id, Leave::EXPLICIT).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// How a participant left.
+#[derive(Clone, Copy, Debug)]
+pub struct Leave {
+    /// Also disconnect their LiveKit session (removed from group, switched calls).
+    pub kick: bool,
+    /// End an emptied call right away. Unexpected drops wait for a grace period
+    /// so a client that is reconnecting can come back into the same room.
+    pub end_now: bool,
+}
+
+impl Leave {
+    /// The user pressed "leave".
+    pub const EXPLICIT: Self = Self {
+        kick: false,
+        end_now: true,
+    };
+    /// Joined another call, or lost access to the conversation.
+    pub const REMOVED: Self = Self {
+        kick: true,
+        end_now: true,
+    };
+    /// LiveKit reported the participant gone (crash, network loss, ICE failure).
+    pub const DROPPED: Self = Self {
+        kick: false,
+        end_now: false,
+    };
+    /// Gateway offline for longer than DISCONNECT_GRACE.
+    pub const OFFLINE: Self = Self {
+        kick: true,
+        end_now: false,
+    };
+}
+
+/// Grace before ending a call that emptied because of a drop.
+pub const DROPPED_CALL_GRACE: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Marks the participant as gone, broadcasts CALL_LEAVE and ends the call when
-/// it becomes empty. `kick` also disconnects the LiveKit session.
-pub async fn leave_internal(state: &AppState, call_id: &str, user_id: &str, kick: bool) -> ApiResult<bool> {
+/// it becomes empty (immediately or after a grace period, see [`Leave`]).
+pub async fn leave_internal(state: &AppState, call_id: &str, user_id: &str, how: Leave) -> ApiResult<bool> {
     let res =
         sqlx::query("UPDATE call_participants SET left_at = ? WHERE call_id = ? AND user_id = ? AND left_at IS NULL")
             .bind(now_ms())
@@ -285,11 +321,15 @@ pub async fn leave_internal(state: &AppState, call_id: &str, user_id: &str, kick
         &json!({ "call_id": call_id, "conversation_id": call.conversation_id, "user_id": user_id }),
     )
     .await?;
-    if kick {
+    if how.kick {
         kick_from_room(state, &call.room_name, user_id);
     }
     if call.participants.is_empty() && call.ended_at.is_none() {
-        end_internal(state, call_id).await?;
+        if how.end_now {
+            end_internal(state, call_id).await?;
+        } else {
+            spawn_empty_call_reaper(state.clone(), call_id.to_string(), DROPPED_CALL_GRACE);
+        }
     }
     Ok(true)
 }
@@ -429,7 +469,7 @@ pub async fn update_state(
 /// Called when a member is removed from a group.
 pub async fn leave_all_calls_in_conversation(state: &AppState, conversation_id: &str, user_id: &str) -> ApiResult<()> {
     if let Some(call_id) = active_call_id(&state.db, conversation_id).await? {
-        leave_internal(state, &call_id, user_id, true).await?;
+        leave_internal(state, &call_id, user_id, Leave::REMOVED).await?;
     }
     Ok(())
 }
@@ -438,9 +478,9 @@ pub async fn leave_all_calls_in_conversation(state: &AppState, conversation_id: 
 /// would otherwise stay "active" forever.
 const EMPTY_CALL_GRACE: std::time::Duration = std::time::Duration::from_secs(60);
 
-fn spawn_empty_call_reaper(state: AppState, call_id: String) {
+fn spawn_empty_call_reaper(state: AppState, call_id: String, grace: std::time::Duration) {
     tokio::spawn(async move {
-        tokio::time::sleep(EMPTY_CALL_GRACE).await;
+        tokio::time::sleep(grace).await;
         if let Ok(call) = load_call(&state.db, &call_id).await
             && call.ended_at.is_none()
             && call.participants.is_empty()
@@ -473,7 +513,7 @@ pub async fn leave_calls_if_still_offline(state: AppState, user_id: String) {
             }
         };
     for (call_id,) in calls {
-        if let Err(e) = leave_internal(&state, &call_id, &user_id, true).await {
+        if let Err(e) = leave_internal(&state, &call_id, &user_id, Leave::OFFLINE).await {
             tracing::warn!(error = ?e, "could not remove offline user from call");
         }
     }
@@ -505,7 +545,15 @@ pub async fn livekit_webhook(State(state): State<AppState>, headers: HeaderMap, 
     match event.event.as_str() {
         "participant_left" => {
             if let Some(p) = event.participant {
-                leave_internal(&state, &call_id, &p.identity, false).await?;
+                // A reconnecting client may already be back in the room under a
+                // new session; only drop the user if LiveKit agrees they are gone.
+                let room_name = room.name.clone();
+                let still_there = livekit::participant_present(&state.http, lk, &room_name, &p.identity)
+                    .await
+                    .unwrap_or(false);
+                if !still_there {
+                    leave_internal(&state, &call_id, &p.identity, Leave::DROPPED).await?;
+                }
             }
         }
         "room_finished" => end_internal(&state, &call_id).await?,

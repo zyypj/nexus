@@ -1,0 +1,192 @@
+{
+    "_comment": "Nexus Server egg. Import in Admin > Nests > Import Egg. See docs/PTERODACTYL.md.",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2026-10-07T00:00:00+00:00",
+    "name": "Nexus Server",
+    "author": "admin@nexus.local",
+    "description": "Nexus API + WebSocket gateway + SQLite + uploads (single Rust binary). Data persists in /home/container/data.",
+    "features": null,
+    "docker_images": {
+        "Nexus Server (GHCR)": "ghcr.io/OWNER/nexus-server:latest"
+    },
+    "file_denylist": [],
+    "startup": "nexus-server serve",
+    "config": {
+        "files": "{}",
+        "startup": "{\"done\": \"server listening\"}",
+        "logs": "{}",
+        "stop": "^C"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\n# The Nexus binary lives in the Docker image; installation only prepares the\n# persistent data directory inside the server volume (/home/container).\nmkdir -p /mnt/server/data/uploads\necho \"Nexus data directory ready: /home/container/data (database + uploads)\"\n",
+            "container": "debian:trixie-slim",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "App name",
+            "description": "Name shown to clients.",
+            "env_variable": "NEXUS_APP_NAME",
+            "default_value": "Nexus",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:32",
+            "field_type": "text"
+        },
+        {
+            "name": "Listen address",
+            "description": "Interface to bind inside the container. Keep 0.0.0.0.",
+            "env_variable": "NEXUS_HOST",
+            "default_value": "0.0.0.0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|ip",
+            "field_type": "text"
+        },
+        {
+            "name": "Listen port",
+            "description": "Leave empty to use the primary allocation port (recommended).",
+            "env_variable": "NEXUS_PORT",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|integer|between:1,65535",
+            "field_type": "text"
+        },
+        {
+            "name": "Public URL",
+            "description": "Address clients use to reach this server, e.g. https://chat.example.com or http://203.0.113.5:3000.",
+            "env_variable": "NEXUS_PUBLIC_URL",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:255",
+            "field_type": "text"
+        },
+        {
+            "name": "Data directory",
+            "description": "Persistent directory for nexus.db and uploads/ (inside the server volume).",
+            "env_variable": "NEXUS_DATA_DIR",
+            "default_value": "/home/container/data",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|string|max:255",
+            "field_type": "text"
+        },
+        {
+            "name": "JWT secret",
+            "description": "Leave empty to auto-generate one on first start (stored in data/.jwt_secret). At least 32 characters if set.",
+            "env_variable": "JWT_SECRET",
+            "default_value": "",
+            "user_viewable": false,
+            "user_editable": true,
+            "rules": "nullable|string|min:32|max:256",
+            "field_type": "text"
+        },
+        {
+            "name": "LiveKit URL",
+            "description": "URL clients use for media, e.g. ws://203.0.113.5:7880 or wss://media.example.com. Empty disables calls.",
+            "env_variable": "LIVEKIT_URL",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:255",
+            "field_type": "text"
+        },
+        {
+            "name": "LiveKit API URL",
+            "description": "Optional internal URL the server uses for LiveKit's API (defaults to LiveKit URL with ws->http).",
+            "env_variable": "LIVEKIT_API_URL",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:255",
+            "field_type": "text"
+        },
+        {
+            "name": "LiveKit API key",
+            "description": "Must match the LiveKit egg.",
+            "env_variable": "LIVEKIT_API_KEY",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:64",
+            "field_type": "text"
+        },
+        {
+            "name": "LiveKit API secret",
+            "description": "Must match the LiveKit egg. At least 32 characters.",
+            "env_variable": "LIVEKIT_API_SECRET",
+            "default_value": "",
+            "user_viewable": false,
+            "user_editable": true,
+            "rules": "nullable|string|min:32|max:256",
+            "field_type": "text"
+        },
+        {
+            "name": "Public registration",
+            "description": "true lets anyone sign up without an invite code.",
+            "env_variable": "ALLOW_PUBLIC_REGISTRATION",
+            "default_value": "false",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:true,false",
+            "field_type": "text"
+        },
+        {
+            "name": "Max upload size",
+            "description": "Per-file limit, e.g. 25MB, 100MB.",
+            "env_variable": "MAX_UPLOAD_SIZE",
+            "default_value": "25MB",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:16",
+            "field_type": "text"
+        },
+        {
+            "name": "Log level",
+            "description": "error, warn, info, debug or trace.",
+            "env_variable": "LOG_LEVEL",
+            "default_value": "info",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:error,warn,info,debug,trace",
+            "field_type": "text"
+        },
+        {
+            "name": "Trust proxy",
+            "description": "true only behind a reverse proxy you control (uses X-Forwarded-For for rate limits).",
+            "env_variable": "TRUST_PROXY",
+            "default_value": "false",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:true,false",
+            "field_type": "text"
+        },
+        {
+            "name": "TLS certificate",
+            "description": "Optional PEM certificate path (e.g. /home/container/tls/fullchain.pem) to serve HTTPS directly.",
+            "env_variable": "NEXUS_TLS_CERT",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:255",
+            "field_type": "text"
+        },
+        {
+            "name": "TLS key",
+            "description": "Optional PEM private key path for HTTPS.",
+            "env_variable": "NEXUS_TLS_KEY",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:255",
+            "field_type": "text"
+        }
+    ]
+}

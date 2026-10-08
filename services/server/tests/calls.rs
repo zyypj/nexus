@@ -379,3 +379,36 @@ async fn calls_disabled_without_livekit() {
         StatusCode::SERVICE_UNAVAILABLE
     );
 }
+
+#[tokio::test]
+async fn dropped_participant_can_rejoin_same_room() {
+    let s = TestServer::start().await;
+    let (users, gid) = s.group("drop", 2).await;
+    let join = start(&users[0], &gid).await;
+    let call_id = join["call"]["id"].as_str().unwrap().to_string();
+    let room = room_of(&s, &join);
+
+    // LiveKit reports the only participant gone (ICE failure / crash).
+    let body =
+        json!({ "event": "participant_left", "room": { "name": room }, "participant": { "identity": users[0].id } })
+            .to_string();
+    let res = s
+        .http
+        .post(format!("{}/api/livekit/webhook", s.base))
+        .header("authorization", signed_webhook(&s, &body))
+        .body(body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(participants(&users[0], &call_id).await.is_empty());
+
+    // The call is kept for a grace period instead of being torn down...
+    let (_, calls) = users[0].get("/api/calls").await;
+    assert_eq!(calls.as_array().unwrap().len(), 1, "call must survive a drop");
+    // ...so the reconnecting client lands in the same room.
+    let (status, again) = users[0].post(&format!("/api/calls/{call_id}/join"), json!({})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(room_of(&s, &again), room);
+    assert_eq!(participants(&users[0], &call_id).await, vec![users[0].id.clone()]);
+}
