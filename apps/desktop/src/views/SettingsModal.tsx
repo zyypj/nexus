@@ -6,6 +6,7 @@ import { Modal } from "../components/Modal";
 import { client, useNexus, useSession } from "../lib/nexus";
 import { invoke, isTauri, listen } from "../lib/platform";
 import { type HotkeyAction, type HotkeyBinding, type NoiseMode, useSettings } from "../lib/settings";
+import { playSound } from "../lib/sounds";
 import { checkForUpdates, useUpdater } from "../lib/updater";
 
 const APP_VERSION = __APP_VERSION__;
@@ -402,6 +403,24 @@ function AppSettings() {
         <input type="checkbox" checked={s.notifications} onChange={(e) => s.set({ notifications: e.target.checked })} />
         Notificações de novas mensagens
       </label>
+      <label className="check">
+        <input type="checkbox" checked={s.sounds} onChange={(e) => s.set({ sounds: e.target.checked })} />
+        Sons (chamadas, mute, compartilhamento, mensagens)
+      </label>
+      {s.sounds && (
+        <label>
+          Volume dos sons: {Math.round(s.soundVolume * 100)}%
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={s.soundVolume}
+            onChange={(e) => s.set({ soundVolume: Number(e.target.value) })}
+            onMouseUp={() => playSound("message")}
+          />
+        </label>
+      )}
       <label className="check">
         <input type="checkbox" checked={s.autoUpdate} onChange={(e) => s.set({ autoUpdate: e.target.checked })} />
         Baixar atualizações automaticamente (GitHub)

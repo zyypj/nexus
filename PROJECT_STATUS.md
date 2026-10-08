@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-08 (sessão 1).
+Última atualização: 2026-10-08 (sessão 1, versão 0.1.1).
 
 ## Fase atual
 
@@ -54,6 +54,35 @@ debug).
   (inofensivo no Linux, só falhava em teste no Windows) e o Dockerfile do servidor não incluía
   o membro `tests/noise-bench` do workspace (workflow opcional "Docker images" falhava;
   correção ainda não validada num build real).
+
+## 0.1.1 (sessão 1, parte 3) — correções do primeiro uso real
+
+Problemas encontrados no primeiro uso com o servidor do usuário (painel.tadeu.space) e corrigidos:
+
+- **Ninguém se ouvia nas calls (Windows)**: as trilhas de áudio remotas nunca eram anexadas
+  (`track.attach()`); com `webAudioMix` o áudio só toca depois disso. Corrigido em
+  `callManager.ts`; verificado com LiveKit local + bot `lk` publicando voz (elemento anexado,
+  trilha viva, pico 0,58, AudioContext rodando). O Android não tinha o problema (WebRTC nativo).
+- **LiveKit sem porta de sinalização** (`portHttp: 0`): o livekit-server lê `LIVEKIT_<CAMPO>` do
+  ambiente por cima do `livekit.yaml`, e a variável vazia `LIVEKIT_PORT` do egg zerava a porta.
+  `livekit-start.sh` agora remove todas as `LIVEKIT_*` (menos `LIVEKIT_KEYS`) e se autoatualiza a
+  partir das releases (SHA-256). Reproduzido e testado localmente.
+- **API key errada no painel** (segredo colado no campo da key): corrigida para `nexus`.
+- **Restart do servidor travava** em "shutting down" (WebSockets abertos + leitura bloqueante do
+  stdin do console): desligamento limitado a 10 s + `shutdown_timeout`.
+- **Áudio do computador falhava** (worklet virava `data:` URL, bloqueado pelo CSP): Vite não
+  embute mais `.js` pequenos.
+- **Transmissão de tela estilo Discord**: seletor próprio com miniaturas (Aplicativos/Telas),
+  resolução, FPS e áudio; captura nativa WGC → memória compartilhada do WebView2 →
+  `MediaStreamTrackGenerator`; sem segundo seletor e sem a barra "tauri.localhost está
+  compartilhando". Testado ponta a ponta numa cópia do app (identificador separado) com LiveKit
+  local: tela e janela, H.264 1920×1200 recebido por um assinante `lk` sem perda, parar/retomar.
+  Detalhes e números em docs/SCREEN_SHARE.md.
+- **Sons** (mensagem, chamada recebida/chamando, entrar/sair, mute, ensurdecer, transmissão) no
+  Windows e no Android, com liga/desliga e volume; banner de chamada recebida no Android.
+
+Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
+aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
 
 ## Funcionalidades prontas (verificadas)
 

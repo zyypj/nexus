@@ -32,6 +32,9 @@ export interface Settings {
   localMutes: Record<string, boolean>;
   closeToTray: boolean;
   notifications: boolean;
+  /** UI sounds (calls, mute, messages) and their volume 0..1. */
+  sounds: boolean;
+  soundVolume: number;
   /** Download new versions from GitHub in the background. */
   autoUpdate: boolean;
 }
@@ -54,6 +57,8 @@ const defaults: Settings = {
   localMutes: {},
   closeToTray: true,
   notifications: true,
+  sounds: true,
+  soundVolume: 0.6,
   autoUpdate: true,
 };
 

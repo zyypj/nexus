@@ -1,4 +1,6 @@
+mod capture_bar;
 mod hotkeys;
+pub mod screen_capture;
 mod secrets;
 pub mod system_audio;
 
@@ -66,6 +68,7 @@ pub fn run() {
     PROCESS_START.get_or_init(Instant::now);
 
     tauri::Builder::default()
+        .manage(screen_capture::CaptureState::default())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
@@ -73,6 +76,12 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             app_ready,
+            capture_bar::capture_bar_hide,
+            screen_capture::capture_supported,
+            screen_capture::capture_sources,
+            screen_capture::capture_start,
+            screen_capture::capture_configure,
+            screen_capture::capture_stop,
             set_close_to_tray,
             secrets::secret_get,
             secrets::secret_set,

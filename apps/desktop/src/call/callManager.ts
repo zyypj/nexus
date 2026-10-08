@@ -15,11 +15,14 @@ import {
   VideoPresets,
 } from "livekit-client";
 import { client } from "../lib/nexus";
+import { invoke } from "../lib/platform";
 import { type ScreenQuality, settings, useSettings } from "../lib/settings";
+import { playSound, startLoop, stopLoop } from "../lib/sounds";
 import { type ParticipantView, idleCall as idle, setCallUi as setUi, useCall } from "./callStore";
 import { releaseAudio, resumeAudio, sharedAudioContext } from "./audioContext";
 import { RnnoiseProcessor } from "./noise";
 import { type Limitation, QualityGovernor, type QualityPreset, autoStart, preset } from "./screenQuality";
+import { type CaptureSource, NativeScreenCapture } from "./nativeScreen";
 import { type CaptureMode, SystemAudioCapture } from "./systemAudio";
 
 function audioConstraints() {
@@ -42,12 +45,14 @@ export class CallManager {
   private rnnoise: RnnoiseProcessor | null = null;
   private systemAudio: SystemAudioCapture | null = null;
   private screenAudioPub: LocalTrackPublication | null = null;
+  private nativeScreen: NativeScreenCapture | null = null;
   private governor: QualityGovernor | null = null;
   private statsTimer: ReturnType<typeof setTimeout> | null = null;
   private pttReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   private stateSync: ReturnType<typeof setTimeout> | null = null;
   private rejoinAttempt = 0;
   private leaving = false;
+  private callingTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.wantMuted = useCall.getState().muted;
@@ -64,6 +69,17 @@ export class CallManager {
   async start(conversationId: Id): Promise<void> {
     const join = await client().api.startCall(conversationId);
     await this.connect(join.call.id, join.call.conversation_id, join.livekit_url, join.livekit_token);
+    // Ringback while nobody else has joined yet (stops on join or after 45 s).
+    if (this.room && this.room.remoteParticipants.size === 0) {
+      startLoop("calling");
+      this.callingTimer = setTimeout(() => this.stopCalling(), 45_000);
+    }
+  }
+
+  private stopCalling() {
+    if (this.callingTimer) clearTimeout(this.callingTimer);
+    this.callingTimer = null;
+    stopLoop("calling");
   }
 
   async join(callId: Id): Promise<void> {
@@ -106,6 +122,7 @@ export class CallManager {
       void client().api.leaveCall(callId).catch(() => undefined);
       throw e;
     }
+    if (this.rejoinAttempt === 0) playSound("join");
     this.rejoinAttempt = 0;
     setUi({ status: "connected" });
     await this.publishMic();
@@ -128,12 +145,15 @@ export class CallManager {
   }
 
   private async teardown(resetUi: boolean) {
+    this.stopCalling();
+    if (resetUi && this.room) playSound("leave");
     if (this.statsTimer) clearTimeout(this.statsTimer);
     this.statsTimer = null;
     await this.stopSystemAudio();
     const room = this.room;
     this.room = null;
     if (room) await room.disconnect(true);
+    for (const el of document.querySelectorAll("audio[data-nexus-audio]")) el.remove();
     await this.rnnoise?.destroy();
     this.rnnoise = null;
     this.governor = null;
@@ -149,13 +169,36 @@ export class CallManager {
       this.applyVolumes();
     };
     room
-      .on(RoomEvent.ParticipantConnected, refresh)
-      .on(RoomEvent.ParticipantDisconnected, refresh)
+      .on(RoomEvent.ParticipantConnected, () => {
+        this.stopCalling();
+        playSound("join");
+        refresh();
+      })
+      .on(RoomEvent.ParticipantDisconnected, () => {
+        playSound("leave");
+        refresh();
+      })
       .on(RoomEvent.ActiveSpeakersChanged, refresh)
       .on(RoomEvent.TrackMuted, refresh)
       .on(RoomEvent.TrackUnmuted, refresh)
-      .on(RoomEvent.TrackSubscribed, bump)
-      .on(RoomEvent.TrackUnsubscribed, bump)
+      .on(RoomEvent.TrackSubscribed, (track) => {
+        // Remote audio only plays once attached; with webAudioMix the element
+        // stays muted and the sound goes through the per-user gain node.
+        if (track.kind === Track.Kind.Audio) {
+          const el = track.attach();
+          el.dataset.nexusAudio = "";
+          el.hidden = true;
+          document.body.append(el);
+        }
+        bump();
+      })
+      .on(RoomEvent.TrackUnsubscribed, (track) => {
+        if (track.kind === Track.Kind.Audio) for (const el of track.detach()) el.remove();
+        bump();
+      })
+      .on(RoomEvent.AudioPlaybackStatusChanged, () => {
+        if (!room.canPlaybackAudio) void room.startAudio().catch(() => undefined);
+      })
       .on(RoomEvent.LocalTrackPublished, bump)
       .on(RoomEvent.LocalTrackUnpublished, (pub) => {
         // Browser's own "stop sharing" button ends the screen track.
@@ -263,6 +306,7 @@ export class CallManager {
     } else {
       this.wantMuted = !ui.muted;
       setUi({ muted: this.wantMuted });
+      playSound(this.wantMuted ? "mute" : "unmute");
     }
     await this.applyMicGate();
     this.syncServerState();
@@ -271,6 +315,7 @@ export class CallManager {
   async setDeafened(deafened: boolean) {
     const ui = useCall.getState();
     if (deafened === ui.deafened) return;
+    playSound(deafened ? "deafen" : "undeafen");
     if (deafened) {
       this.mutedBeforeDeafen = ui.muted;
       setUi({ deafened: true, muted: true });
@@ -361,7 +406,9 @@ export class CallManager {
 
   async startScreenShare(opts: {
     quality: ScreenQuality;
-    surface: "monitor" | "window";
+    /** Native capture of this monitor/window (picker); otherwise getDisplayMedia. */
+    source?: CaptureSource;
+    surface?: "monitor" | "window";
     motion: boolean;
     audio: CaptureMode | null;
   }) {
@@ -370,6 +417,53 @@ export class CallManager {
     const auto = opts.quality === "auto";
     const p: QualityPreset = auto ? autoStart() : preset(opts.quality as QualityPreset["id"]);
     const allow60 = opts.motion && (navigator.hardwareConcurrency || 4) >= 8;
+    const started = opts.source
+      ? await this.startNativeScreen(opts.source, p, opts.motion)
+      : await this.startBrowserScreen(p, opts.surface ?? "monitor", opts.motion);
+    if (!started) return;
+    this.governor = new QualityGovernor(p, auto, allow60);
+    setUi({ screenOn: true, screenQuality: p.label, screenNotice: null });
+    playSound("screen_start");
+    if (opts.audio) await this.startSystemAudio(opts.audio);
+    this.scheduleStats();
+    this.syncServerState();
+  }
+
+  private async startNativeScreen(source: CaptureSource, p: QualityPreset, motion: boolean): Promise<boolean> {
+    const room = this.room;
+    if (!room) return false;
+    const capture = new NativeScreenCapture();
+    try {
+      const track = await capture.start(
+        source.id,
+        { fps: p.fps, maxWidth: p.width, maxHeight: p.height },
+        motion ? "motion" : "detail",
+      );
+      capture.onEnded = () => void this.stopScreenShare();
+      this.nativeScreen = capture;
+      await room.localParticipant.publishTrack(track, {
+        source: Track.Source.ScreenShare,
+        name: "screen",
+        videoCodec: "h264",
+        backupCodec: { codec: "vp8" },
+        screenShareEncoding: { maxBitrate: p.maxBitrate, maxFramerate: p.fps },
+        degradationPreference: motion ? "maintain-framerate" : "maintain-resolution",
+        simulcast: false,
+      });
+      return true;
+    } catch (e) {
+      this.nativeScreen = null;
+      await capture.stop();
+      setUi({ error: `Não foi possível compartilhar: ${String((e as Error).message ?? e)}` });
+      return false;
+    }
+  }
+
+  /** Fallback (browser dev mode / old WebView2): the system picker. */
+  private async startBrowserScreen(p: QualityPreset, surface: "monitor" | "window", motion: boolean): Promise<boolean> {
+    const room = this.room;
+    if (!room) return false;
+    const opts = { surface, motion };
     try {
       await room.localParticipant.setScreenShareEnabled(
         true,
@@ -394,17 +488,17 @@ export class CallManager {
     } catch (e) {
       const err = e as Error;
       if (err.name !== "NotAllowedError") setUi({ error: `Não foi possível compartilhar a tela: ${err.message}` });
-      return;
+      return false;
     }
-    this.governor = new QualityGovernor(p, auto, allow60);
-    setUi({ screenOn: true, screenQuality: p.label, screenNotice: null });
-    if (opts.audio) await this.startSystemAudio(opts.audio);
-    this.scheduleStats();
-    this.syncServerState();
+    void invoke("capture_bar_hide").catch(() => undefined);
+    return true;
   }
 
   async stopScreenShare() {
-    await this.room?.localParticipant.setScreenShareEnabled(false);
+    const room = this.room;
+    const pub = room?.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+    if (this.nativeScreen && pub?.track) await room?.localParticipant.unpublishTrack(pub.track).catch(() => undefined);
+    else await room?.localParticipant.setScreenShareEnabled(false);
     await this.afterScreenStopped();
   }
 
@@ -412,6 +506,10 @@ export class CallManager {
     if (this.statsTimer) clearTimeout(this.statsTimer);
     this.statsTimer = null;
     this.governor = null;
+    if (useCall.getState().screenOn) playSound("screen_stop");
+    const native = this.nativeScreen;
+    this.nativeScreen = null;
+    await native?.stop();
     await this.stopSystemAudio();
     setUi({ screenOn: false, screenAudioOn: false, screenQuality: null, screenNotice: null });
     this.syncServerState();
@@ -449,7 +547,29 @@ export class CallManager {
 
   /** Samples encoder stats every 5 s while sharing (no timer otherwise). */
   private scheduleStats() {
-    this.statsTimer = setTimeout(() => void this.checkStats(), 5000);
+    // First check sooner: native capture needs its encoder scale set once the
+    // first frame size is known.
+    this.statsTimer = setTimeout(() => void this.checkStats(), this.governor?.current && !this.statsTimer ? 1500 : 5000);
+  }
+
+  /** Native frames are at least the target size; let the encoder scale down. */
+  private async applyNativeScale(target: QualityPreset) {
+    const native = this.nativeScreen;
+    const pub = this.room?.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+    const sender = (pub?.track as LocalVideoTrack | undefined)?.sender;
+    if (!native || !sender) return;
+    const { width, height } = native.size;
+    if (!width || !height) return;
+    const scale = Math.max(1, width / target.width, height / target.height);
+    const params = sender.getParameters();
+    let changed = false;
+    for (const enc of params.encodings) {
+      if (Math.abs((enc.scaleResolutionDownBy ?? 1) - scale) > 0.05) {
+        enc.scaleResolutionDownBy = scale;
+        changed = true;
+      }
+    }
+    if (changed) await sender.setParameters(params);
   }
 
   private async checkStats() {
@@ -461,12 +581,21 @@ export class CallManager {
       const top = stats.sort((a, b) => (b.frameWidth ?? 0) - (a.frameWidth ?? 0))[0];
       const reason = (top?.qualityLimitationReason ?? "none") as Limitation;
       const next = this.governor.sample(reason, top?.framesPerSecond ?? 0);
-      if (next) {
+      const native = this.nativeScreen;
+      if (native) {
+        // The capture hands over at least the target size; the encoder scales
+        // the rest (and follows window resizes).
+        const target = next ?? this.governor.current;
+        if (next) await native.configure({ fps: next.fps, maxWidth: next.width, maxHeight: next.height });
+        await this.applyNativeScale(target);
+      } else if (next) {
         await track.mediaStreamTrack.applyConstraints({
           width: { ideal: next.width },
           height: { ideal: next.height },
           frameRate: { ideal: next.fps },
         });
+      }
+      if (next) {
         const sender = track.sender;
         if (sender) {
           const params = sender.getParameters();

@@ -112,3 +112,21 @@ a árvore de processos do Nexus, sem cabo virtual.
 - Medir o modo Padrão e o GTCRN no pipeline real do WebView2 (microfone falso do Chromium com
   `--use-file-for-fake-audio-capture`).
 - Reavaliar o gate por VAD com gravações reais.
+
+## Sons da interface
+
+Gerados por `scripts/gen-sounds.mjs` (síntese simples, sem assets de terceiros; o script é
+determinístico e grava os mesmos `.wav` em `apps/desktop/public/sounds/` e
+`apps/android/android/app/src/main/res/raw/`, ~550 KB no total).
+
+| Som | Quando |
+|---|---|
+| `message` | mensagem de outra pessoa fora da conversa aberta |
+| `ring` (loop) | chamada recebida, até atender/recusar |
+| `calling` (loop) | você iniciou a chamada e ninguém entrou ainda (máx. 45 s) |
+| `join` / `leave` | você ou outra pessoa entra/sai da chamada |
+| `mute` / `unmute`, `deafen` / `undeafen` | botões e atalhos (o push-to-talk não toca som) |
+| `screen_start` / `screen_stop` | início/fim da sua transmissão |
+
+Windows: `HTMLAudioElement` na saída escolhida nas configurações. Android: `SoundPool`
+(`SoundPlayer.kt`, uso "sonification"). Ambos têm liga/desliga e volume nas configurações.

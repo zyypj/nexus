@@ -1,9 +1,10 @@
 import type { UserStatus } from '@nexus/protocol';
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import type { Nav } from '../App';
 import { calls } from '../call/callManager';
 import { client, useNexus, useSession } from '../lib/nexus';
+import { playSound, useSoundPrefs } from '../lib/sounds';
 import { Avatar, IconButton } from '../ui/components';
 import { colors, common, space } from '../ui/theme';
 
@@ -15,6 +16,7 @@ export function SettingsScreen({ nav }: { nav: Nav }) {
   const [displayName, setDisplayName] = useState(me?.display_name ?? '');
   const [bio, setBio] = useState(me?.bio ?? '');
   const [msg, setMsg] = useState<string | null>(null);
+  const sounds = useSoundPrefs();
   if (!me) return null;
   return (
     <View style={common.screen}>
@@ -58,6 +60,27 @@ export function SettingsScreen({ nav }: { nav: Nav }) {
           <Text style={common.buttonText}>Salvar perfil</Text>
         </Pressable>
         {msg && <Text style={common.muted}>{msg}</Text>}
+        <View style={[common.row, { justifyContent: 'space-between' }]}>
+          <Text style={common.text}>Sons (chamadas, mute, tela, mensagens)</Text>
+          <Switch value={sounds.enabled} onValueChange={(enabled) => sounds.set({ enabled })} />
+        </View>
+        {sounds.enabled && (
+          <View style={[common.row, { flexWrap: 'wrap', gap: space.sm }]}>
+            <Text style={common.muted}>Volume:</Text>
+            {[0.3, 0.6, 1].map((v) => (
+              <Pressable
+                key={v}
+                onPress={() => {
+                  sounds.set({ volume: v });
+                  playSound('message');
+                }}
+                style={[common.buttonSecondary, sounds.volume === v && { borderColor: colors.accent }]}
+              >
+                <Text style={common.text}>{v === 0.3 ? 'Baixo' : v === 0.6 ? 'Médio' : 'Alto'}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
         <Text style={common.muted}>
           Áudio: cancelamento de eco, supressão de ruído e controle de ganho usam o processamento do próprio aparelho
           (quando disponível) e o do WebRTC.

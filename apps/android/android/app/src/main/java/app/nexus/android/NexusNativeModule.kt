@@ -47,6 +47,7 @@ class NexusNativeModule(private val ctx: ReactApplicationContext) :
     @Volatile private var capturing = false
     private var playbackCallback: AudioManager.AudioPlaybackCallback? = null
     private val installer by lazy { ApkInstaller(ctx) }
+    private val sounds by lazy { SoundPlayer(ctx) }
 
     init {
         ctx.addActivityEventListener(this)
@@ -325,6 +326,17 @@ class NexusNativeModule(private val ctx: ReactApplicationContext) :
             .emit("NexusCaptureBlocked", Arguments.createMap().apply { putBoolean("blocked", blocked) })
     }
 
+    // ---- UI sounds ----
+
+    @ReactMethod
+    fun playSound(name: String, volume: Double) = sounds.play(name, volume.toFloat())
+
+    @ReactMethod
+    fun startSoundLoop(name: String, volume: Double) = sounds.startLoop(name, volume.toFloat())
+
+    @ReactMethod
+    fun stopSoundLoop(name: String) = sounds.stopLoop(name)
+
     // Required by NativeEventEmitter on Android.
     @ReactMethod
     fun addListener(eventName: String) {}
@@ -334,6 +346,7 @@ class NexusNativeModule(private val ctx: ReactApplicationContext) :
 
     override fun invalidate() {
         stopCaptureInternal()
+        sounds.release()
         super.invalidate()
     }
 

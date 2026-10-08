@@ -41,7 +41,7 @@ pub const CHANNELS: u16 = 2;
 const CHUNK_FRAMES: usize = 960;
 
 #[cfg(windows)]
-mod imp {
+pub(crate) mod imp {
     use std::{
         collections::HashSet,
         sync::{
@@ -334,7 +334,7 @@ mod imp {
     }
 
     /// Our own process plus every descendant (WebView2 processes).
-    fn own_process_tree() -> HashSet<u32> {
+    pub(crate) fn own_process_tree() -> HashSet<u32> {
         let me = unsafe { GetCurrentProcessId() };
         let mut tree = HashSet::from([me]);
         let Ok(snapshot) = (unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }) else {
@@ -369,7 +369,7 @@ mod imp {
         }
     }
 
-    fn process_name(pid: u32) -> Option<String> {
+    pub(crate) fn process_name(pid: u32) -> Option<String> {
         unsafe {
             let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
             let mut buf = [0u16; 520];

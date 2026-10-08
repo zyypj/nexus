@@ -2,20 +2,43 @@
 
 ## Windows
 
-### Vídeo
+### Vídeo (captura nativa, desde 0.1.1)
 
-O app chama `getDisplayMedia` dentro do WebView2. No Windows o Chromium captura janelas e
-monitores com **Windows Graphics Capture** (DXGI Desktop Duplication como fallback), e o quadro
-capturado segue pela GPU até o encoder do WebRTC sem passar por JavaScript. Fazer a captura WGC
-em Rust e copiar quadros para o WebView custaria mais CPU e memória (cópias de buffers a 60 FPS),
-então a API nativa é usada *através* do Chromium.
+O seletor "Transmitir" funciona como o do Discord: abas **Aplicativos** e **Telas** com
+miniaturas atualizadas a cada 4 s, resolução, FPS e áudio no mesmo lugar, e **um clique** começa
+a transmissão. Não aparece o seletor do WebView2 nem a barra "tauri.localhost está compartilhando
+sua tela", porque a captura não passa por `getDisplayMedia`:
 
-- Seletor: monitor inteiro ou janela/aplicativo (`displaySurface`). A permissão é concedida pelo
-  handler nativo do Tauri (`PermissionKind::DisplayCapture`), sem prompt extra do WebView2.
+1. `src-tauri/src/screen_capture.rs` lista monitores (`EnumDisplayMonitors`) e janelas visíveis
+   de outros processos (`EnumWindows`, sem janelas ocultas/"cloaked", minimizadas ou do próprio
+   Nexus), com miniaturas JPEG (`PrintWindow` com `PW_RENDERFULLCONTENT`, que funciona com
+   janelas renderizadas pela GPU). ~200 ms para listar 10 fontes.
+2. A fonte escolhida é capturada com **Windows.Graphics.Capture** (`Direct3D11CaptureFramePool`
+   free-threaded, sem a borda amarela quando o Windows permite, cursor incluído).
+3. Fontes maiores que o alvo são reduzidas **na GPU** (cadeia de mipmaps) até ficarem logo acima
+   da resolução escolhida; o quadro é lido uma vez e escrito em memória compartilhada do WebView2
+   (`ICoreWebView2SharedBuffer`, 3 slots com cabeçalho de estado), sem pixels passando por IPC.
+4. Uma mensagem pequena por quadro avisa a página; `call/nativeScreen.ts` cria um `VideoFrame`
+   (BGRX) e alimenta um `MediaStreamTrackGenerator`, que o LiveKit publica como `screen_share`.
+   O encoder do WebRTC faz a escala final (`scaleResolutionDownBy`).
+5. Tela parada não gera quadros novos no WGC; a página repete o último quadro a cada 1 s para
+   quem entra depois. Se o encoder atrasar, quadros são descartados (latência baixa) em vez de
+   enfileirados. Janela fechada → a transmissão para sozinha.
+
+Medido (`cargo run --release --example capture_probe`, janela animada): alvo 30 FPS → 27,7 FPS;
+alvo 60 FPS → 54 FPS (limitado pela própria animação de teste); redução na GPU 1582×940 → 790×470
+para o alvo 360p. Ponta a ponta com LiveKit local: H.264 1920×1200 recebido por um assinante com
+0% de perda. Uso de CPU da captura nativa ainda **não medido** contra o caminho anterior.
+
+Fallback: se o WebView2 não tiver `MediaStreamTrackGenerator`/shared buffers ou o Windows não
+suportar WGC, o diálogo usa `getDisplayMedia` (seletor do sistema) como antes, e o app esconde a
+barra "compartilhando sua tela" do WebView2 (`capture_bar.rs`, equivalente a clicar em "Ocultar").
+
 - Codec: **H.264** (o que o WebView2 tem mais chance de codificar em hardware via Media
   Foundation), com VP8 como codec reserva.
-- `contentHint`: `detail` (texto nítido, mantém resolução) ou `motion` (jogo/vídeo, mantém FPS),
-  escolhido no diálogo.
+- `contentHint`: `motion` com 60 FPS (jogo/vídeo, mantém FPS), `detail` com 30 FPS (texto nítido).
+- Áudio: ao transmitir uma **janela**, o padrão é o som **só daquele aplicativo**; ao transmitir
+  uma **tela**, o som do computador sem as vozes da chamada.
 
 ### Qualidade
 

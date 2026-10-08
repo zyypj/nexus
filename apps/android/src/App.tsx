@@ -4,10 +4,12 @@ import { BackHandler, PermissionsAndroid, Platform, StatusBar, View } from 'reac
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { calls, useCall } from './call/callManager';
 import { createClient, savedServerUrl, useNexus, useSession } from './lib/nexus';
+import { loadSoundPrefs } from './lib/sounds';
 import { startUpdateChecks } from './lib/updater';
 import { CallScreen } from './screens/CallScreen';
 import { ChatScreen } from './screens/ChatScreen';
 import { HomeScreen } from './screens/HomeScreen';
+import { IncomingCall } from './screens/IncomingCall';
 import { LoginScreen } from './screens/LoginScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { colors } from './ui/theme';
@@ -23,6 +25,7 @@ export default function App() {
   const phase = useSession((s) => s.phase);
 
   useEffect(() => {
+    void loadSoundPrefs();
     void (async () => {
       const url = await savedServerUrl();
       if (!url) {
@@ -82,6 +85,15 @@ function Main() {
     if (callId && ready && !exists) void calls.onCallEnded(callId);
   }, [callId, exists, ready]);
 
+  return (
+    <View style={{ flex: 1 }}>
+      <IncomingCall onAnswer={() => nav.push({ name: 'call' })} />
+      <View style={{ flex: 1 }}>{screen(route, nav)}</View>
+    </View>
+  );
+}
+
+function screen(route: Route, nav: Nav) {
   switch (route.name) {
     case 'chat':
       return <ChatScreen key={route.id} conversationId={route.id} nav={nav} />;

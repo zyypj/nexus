@@ -21,6 +21,9 @@ export default defineConfig({
     sourcemap: false,
     reportCompressedSize: false,
     chunkSizeWarningLimit: 800,
+    // Small `?url` imports become data: URLs by default, which the CSP
+    // (script-src 'self') refuses for AudioWorklet modules.
+    assetsInlineLimit: (file) => (file.endsWith(".js") ? false : undefined),
   },
   worker: { format: "es" },
 });

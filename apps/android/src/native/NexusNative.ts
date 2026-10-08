@@ -14,6 +14,9 @@ interface NexusNativeSpec {
   setMicMuted(muted: boolean): Promise<void>;
   getAppVersion(): Promise<string>;
   installUpdate(url: string, version: string): Promise<'permission' | 'downloading'>;
+  playSound(name: string, volume: number): Promise<void>;
+  startSoundLoop(name: string, volume: number): Promise<void>;
+  stopSoundLoop(name: string): Promise<void>;
 }
 
 export interface PickedFile {
@@ -44,6 +47,10 @@ export const NexusNative = {
   setMicMuted: (muted: boolean) => native().setMicMuted(muted),
   getAppVersion: () => native().getAppVersion(),
   installUpdate: (url: string, version: string) => native().installUpdate(url, version),
+  // Fire-and-forget @ReactMethods (no Promise on the Kotlin side).
+  playSound: async (name: string, volume: number) => native().playSound(name, volume),
+  startSoundLoop: async (name: string, volume: number) => native().startSoundLoop(name, volume),
+  stopSoundLoop: async (name: string) => native().stopSoundLoop(name),
 };
 
 export const UPDATE_ERROR_EVENT = 'NexusUpdateError';

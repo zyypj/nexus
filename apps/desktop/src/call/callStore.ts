@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { listen } from "../lib/platform";
 import type { ScreenQuality } from "../lib/settings";
 import type { CaptureMode } from "./systemAudio";
+import type { CaptureSource } from "./nativeScreen";
 
 export interface ParticipantView {
   identity: Id;
@@ -87,7 +88,9 @@ export const calls = {
   setCamera: async (on: boolean) => manager?.setCamera(on),
   startScreenShare: async (opts: {
     quality: ScreenQuality;
-    surface: "monitor" | "window";
+    /** Native capture (picker); without it the system picker is used. */
+    source?: CaptureSource;
+    surface?: "monitor" | "window";
     motion: boolean;
     audio: CaptureMode | null;
   }) => manager?.startScreenShare(opts),

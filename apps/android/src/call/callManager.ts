@@ -15,6 +15,7 @@ import { type Permission, PermissionsAndroid } from 'react-native';
 import { create } from 'zustand';
 import { client } from '../lib/nexus';
 import { CAPTURE_BLOCKED_EVENT, NexusNative, nativeEvents } from '../native/NexusNative';
+import { playSound, startLoop, stopLoop } from '../lib/sounds';
 
 export interface ParticipantView {
   identity: Id;
@@ -75,6 +76,7 @@ class CallManager {
   private leaving = false;
   private attempt = 0;
   private mutedBeforeDeafen = false;
+  private callingTimer: ReturnType<typeof setTimeout> | null = null;
 
   async start(conversationId: Id, video = false) {
     if (!(await ensurePermissions(video))) {
@@ -83,7 +85,18 @@ class CallManager {
     }
     const join = await client().api.startCall(conversationId);
     await this.connect(join.call.id, join.call.conversation_id, join.livekit_url, join.livekit_token);
+    // Ringback while nobody else has joined yet (stops on join or after 45 s).
+    if (this.room && this.room.remoteParticipants.size === 0) {
+      startLoop('calling');
+      this.callingTimer = setTimeout(() => this.stopCalling(), 45_000);
+    }
     if (video) await this.setCamera(true);
+  }
+
+  private stopCalling() {
+    if (this.callingTimer) clearTimeout(this.callingTimer);
+    this.callingTimer = null;
+    stopLoop('calling');
   }
 
   async join(callId: Id) {
@@ -111,8 +124,15 @@ class CallManager {
     this.room = room;
     const refresh = () => this.refresh();
     room
-      .on(RoomEvent.ParticipantConnected, refresh)
-      .on(RoomEvent.ParticipantDisconnected, refresh)
+      .on(RoomEvent.ParticipantConnected, () => {
+        this.stopCalling();
+        playSound('join');
+        refresh();
+      })
+      .on(RoomEvent.ParticipantDisconnected, () => {
+        playSound('leave');
+        refresh();
+      })
       .on(RoomEvent.ActiveSpeakersChanged, refresh)
       .on(RoomEvent.TrackMuted, refresh)
       .on(RoomEvent.TrackUnmuted, refresh)
@@ -138,6 +158,7 @@ class CallManager {
       void client().api.leaveCall(callId).catch(() => undefined);
       return;
     }
+    if (this.attempt === 0) playSound('join');
     this.attempt = 0;
     set({ status: 'connected' });
     // Keeps the microphone and the call alive with the screen off / app in background.
@@ -181,6 +202,8 @@ class CallManager {
   }
 
   private async teardown(reset: boolean) {
+    this.stopCalling();
+    if (reset && this.room) playSound('leave');
     await this.stopDeviceAudio();
     const room = this.room;
     this.room = null;
@@ -217,8 +240,13 @@ class CallManager {
 
   async toggleMute() {
     const s = useCall.getState();
-    if (s.deafened) set({ deafened: false, muted: false });
-    else set({ muted: !s.muted });
+    if (s.deafened) {
+      set({ deafened: false, muted: false });
+      playSound('undeafen');
+    } else {
+      set({ muted: !s.muted });
+      playSound(s.muted ? 'unmute' : 'mute');
+    }
     this.applyVolumes();
     await this.applyMicGate();
     this.sync();
@@ -226,6 +254,7 @@ class CallManager {
 
   async toggleDeafen() {
     const s = useCall.getState();
+    playSound(s.deafened ? 'undeafen' : 'deafen');
     if (s.deafened) set({ deafened: false, muted: this.mutedBeforeDeafen });
     else {
       this.mutedBeforeDeafen = s.muted;
@@ -285,6 +314,7 @@ class CallManager {
       return;
     }
     set({ screenOn: true });
+    playSound('screen_start');
     if (withAudio) await this.startDeviceAudio();
     this.sync();
   }
@@ -295,6 +325,7 @@ class CallManager {
   }
 
   private async afterScreenStopped() {
+    if (useCall.getState().screenOn) playSound('screen_stop');
     await this.stopDeviceAudio();
     set({ screenOn: false });
     this.sync();

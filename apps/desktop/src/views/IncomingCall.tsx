@@ -5,6 +5,7 @@ import { calls, useCall } from "../call/callStore";
 import { Icon } from "../components/Icon";
 import { useNexus } from "../lib/nexus";
 import { notify } from "../lib/platform";
+import { startLoop, stopLoop } from "../lib/sounds";
 
 /**
  * Shows a ringing banner for calls started by someone else in a DM or group
@@ -33,6 +34,11 @@ export function IncomingCall() {
   useEffect(() => {
     if (show) void notify("Chamada recebida", `${caller ?? "Alguém"} está chamando em ${title}`);
   }, [show, caller, title]);
+  useEffect(() => {
+    if (!show) return;
+    startLoop("ring");
+    return () => stopLoop("ring");
+  }, [show]);
   if (!show) return null;
 
   const dismiss = (c: Call) => setDismissed((d) => new Set(d).add(c.id));

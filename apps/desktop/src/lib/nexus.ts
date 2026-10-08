@@ -2,6 +2,7 @@ import { NexusClient, type NexusState, conversationTitle } from "@nexus/shared";
 import { useStore } from "zustand";
 import { create } from "zustand";
 import { deviceName, notify, tokenStore } from "./platform";
+import { playSound } from "./sounds";
 import { settings } from "./settings";
 
 /** App-level phase: which screen to show. */
@@ -42,6 +43,7 @@ export function createClient(serverUrl: string): NexusClient {
     isAppVisible: () => focused && document.visibilityState === "visible",
     onLoggedOut: () => useSession.getState().setPhase("login"),
     onNotify: (m, s) => {
+      playSound("message");
       if (!settings().notifications) return;
       const author = s.users[m.author_id]?.display_name ?? "Nova mensagem";
       const conv = s.conversations[m.conversation_id];

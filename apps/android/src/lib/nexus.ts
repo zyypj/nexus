@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import * as Keychain from 'react-native-keychain';
 import { create, useStore } from 'zustand';
 import { NexusNative } from '../native/NexusNative';
+import { playSound } from './sounds';
 
 interface SessionStore {
   phase: 'boot' | 'login' | 'app';
@@ -52,6 +53,7 @@ export function createClient(serverUrl: string): NexusClient {
     isAppVisible: () => foreground,
     onLoggedOut: () => useSession.setState({ phase: 'login' }),
     onNotify: (m, s) => {
+      playSound('message');
       const author = s.users[m.author_id]?.display_name ?? 'Nova mensagem';
       const conv = s.conversations[m.conversation_id];
       const title = conv && conv.kind === 'group' ? `${author} em ${conversationTitle(s, conv)}` : author;
