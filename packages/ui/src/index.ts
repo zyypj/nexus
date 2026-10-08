@@ -52,3 +52,5 @@ export const presenceColor = (p: string): string =>
   p === "online" ? colors.success : p === "idle" ? colors.idle : p === "dnd" ? colors.dnd : colors.offline;
 
 export const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👀"] as const;
+
+export * from "./icons";

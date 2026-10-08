@@ -83,7 +83,10 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName "1.0"
+        versionName "0.1.0"
+        // Self-hosted servers are often plain http://IP:port (e.g. Pterodactyl
+        // without a proxy). Prefer HTTPS; see docs/SECURITY.md.
+        manifestPlaceholders = [usesCleartextTraffic: "true"]
     }
     signingConfigs {
         debug {
@@ -92,15 +95,22 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // Real signing key from the environment (CI secrets); falls back to the
+        // debug key so local release builds still install.
+        release {
+            def ks = System.getenv("NEXUS_KEYSTORE")
+            storeFile ks ? file(ks) : file('debug.keystore')
+            storePassword ks ? System.getenv("NEXUS_KEYSTORE_PASSWORD") : 'android'
+            keyAlias ks ? System.getenv("NEXUS_KEY_ALIAS") : 'androiddebugkey'
+            keyPassword ks ? System.getenv("NEXUS_KEY_PASSWORD") : 'android'
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }

@@ -89,9 +89,17 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
-      - run: npm run typecheck --workspace @nexus/android
-      - run: npm test --workspace @nexus/android --if-present
+          cache-dependency-path: |
+            package-lock.json
+            apps/android/package-lock.json
+      - run: npm ci  # root workspace: deps used when type-checking packages/*
+      - name: Install (Android app has its own npm project; shared packages are file: links)
+        working-directory: apps/android
+        run: npm ci
+      - working-directory: apps/android
+        run: npm run typecheck
+      - working-directory: apps/android
+        run: npx jest
       - uses: gradle/actions/setup-gradle@v4
       - name: Assemble APK
         working-directory: apps/android/android

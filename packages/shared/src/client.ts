@@ -1,5 +1,5 @@
 import type { AuthResponse, Id, Message } from "@nexus/protocol";
-import { ApiClient, type TokenStore } from "./api";
+import { ApiClient, type TokenStore, type UploadSource } from "./api";
 import { GatewayClient } from "./gateway";
 import {
   type ClientMessage,
@@ -35,7 +35,7 @@ let nonceCounter = 0;
 const makeNonce = () => `${Date.now().toString(36)}-${(nonceCounter++).toString(36)}`;
 
 export interface PendingUpload {
-  file: Blob;
+  file: UploadSource;
   name: string;
 }
 

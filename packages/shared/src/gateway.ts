@@ -128,7 +128,7 @@ export class GatewayClient {
       if (this.ws !== ws) return;
       this.ws = null;
       this.clearTimers();
-      void this.handleClose(ev.code);
+      void this.handleClose(ev.code ?? 1006);
     };
     ws.onerror = () => {
       // onclose follows and handles reconnection.

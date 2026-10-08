@@ -72,6 +72,8 @@ let loading: Promise<Manager> | null = null;
 function load(): Promise<Manager> {
   loading ??= import("./callManager").then((m) => {
     manager = new m.CallManager();
+    // Dev builds only: lets end-to-end tests inspect the LiveKit room.
+    if (import.meta.env.DEV) (globalThis as { __nexusCall?: unknown }).__nexusCall = manager;
     return manager;
   });
   return loading;

@@ -50,6 +50,17 @@ export interface ApiClientOptions {
 
 type Json = Record<string, unknown> | unknown[];
 
+/** A file to upload: a Blob (desktop) or a native file reference (React Native). */
+export type UploadSource = Blob | { uri: string; name: string; type: string };
+
+function appendFile(form: FormData, file: UploadSource, fileName: string) {
+  // DOM FormData takes (name, blob, fileName); React Native's takes
+  // (name, {uri, name, type}). One structural type covers both.
+  const f = form as unknown as { append(name: string, value: unknown, fileName?: string): void };
+  if (typeof Blob !== "undefined" && file instanceof Blob) f.append("file", file, fileName);
+  else f.append("file", file);
+}
+
 export class ApiClient {
   private accessToken: string | null = null;
   private accessExpiresAt = 0;
@@ -129,7 +140,7 @@ export class ApiClient {
     const token = await this.getAccessToken();
     const headers: Record<string, string> = {};
     if (token) headers.authorization = `Bearer ${token}`;
-    let payload: BodyInit | undefined;
+    let payload: FormData | string | undefined;
     if (body instanceof FormData) {
       payload = body;
     } else if (body !== undefined) {
@@ -217,9 +228,9 @@ export class ApiClient {
   changePassword(current: string, next: string): Promise<void> {
     return this.request("PUT", "/api/users/@me/password", { current_password: current, new_password: next });
   }
-  uploadAvatar(file: Blob, fileName: string): Promise<Me> {
+  uploadAvatar(file: UploadSource, fileName: string): Promise<Me> {
     const form = new FormData();
-    form.append("file", file, fileName);
+    appendFile(form, file, fileName);
     return this.request("POST", "/api/users/@me/avatar", form);
   }
   deleteAvatar(): Promise<Me> {
@@ -307,9 +318,9 @@ export class ApiClient {
       `/api/conversations/${id}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
     );
   }
-  uploadAttachment(id: Id, file: Blob, fileName: string): Promise<Attachment> {
+  uploadAttachment(id: Id, file: UploadSource, fileName: string): Promise<Attachment> {
     const form = new FormData();
-    form.append("file", file, fileName);
+    appendFile(form, file, fileName);
     return this.request("POST", `/api/conversations/${id}/attachments`, form);
   }
 

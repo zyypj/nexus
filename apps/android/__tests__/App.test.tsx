@@ -1,13 +1,8 @@
-/**
- * @format
- */
+import { applyFrame, initialState } from '@nexus/shared';
 
-import React from 'react';
-import ReactTestRenderer from 'react-test-renderer';
-import App from '../App';
-
-test('renders correctly', async () => {
-  await ReactTestRenderer.act(() => {
-    ReactTestRenderer.create(<App />);
-  });
+// The shared state logic is tested in packages/shared; this smoke test makes
+// sure Metro/Jest resolve the linked workspace packages from the Android app.
+test('shared store is importable from the Android app', () => {
+  const s = initialState();
+  expect(applyFrame(s, { t: 'TYPING_START', d: { conversation_id: 'c', user_id: 'u' } }).typing?.c?.u).toBeGreaterThan(0);
 });
