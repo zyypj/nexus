@@ -1494,8 +1494,8 @@ video.mirror {
   color: var(--c-text-muted);
 }
 .update-gate-logo {
-  width: 72px;
-  height: 72px;
+  width: 96px;
+  height: auto;
 }
 .update-gate-bar {
   width: min(360px, 80%);

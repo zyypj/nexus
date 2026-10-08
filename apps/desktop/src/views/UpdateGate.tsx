@@ -22,7 +22,7 @@ export function UpdateGate() {
   }
   return (
     <div className="update-gate" role="status" aria-live="polite">
-      <img src="/logo.svg" alt="" className="update-gate-logo" />
+      <img src="/logo.png" alt="" className="update-gate-logo" />
       <h1>{title}</h1>
       {detail && <p>{detail}</p>}
       {status === "downloading" && (

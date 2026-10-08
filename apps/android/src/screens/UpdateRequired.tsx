@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { installUpdate, useUpdate } from '../lib/updater';
 import { colors, common, space } from '../ui/theme';
 
@@ -25,6 +25,7 @@ export function UpdateRequired() {
           : 'Preparando a atualização…';
   return (
     <View style={styles.root}>
+      <Image source={require('../assets/logo.png')} style={styles.logo} resizeMode="contain" />
       <Text style={styles.title}>Atualização obrigatória</Text>
       <Text style={styles.version}>Nexus {available.version}</Text>
       <Text style={[common.muted, styles.center]}>{message}</Text>
@@ -41,6 +42,7 @@ export function UpdateRequired() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.md, padding: space.xl },
+  logo: { width: 96, height: 82 },
   title: { color: colors.text, fontSize: 22, fontWeight: '700' },
   version: { color: colors.accent, fontSize: 16, fontWeight: '600' },
   center: { textAlign: 'center' },

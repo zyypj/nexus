@@ -1,6 +1,6 @@
 import { ApiError } from '@nexus/shared';
 import React, { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { createClient, saveServerUrl, savedServerUrl, useSession } from '../lib/nexus';
 import { colors, common, space } from '../ui/theme';
 
@@ -48,6 +48,7 @@ export function LoginScreen() {
   return (
     <KeyboardAvoidingView style={common.screen} behavior="height">
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <Image source={require('../assets/logo.png')} style={styles.logo} resizeMode="contain" />
         <Text style={styles.brand}>Nexus</Text>
         <View style={styles.tabs}>
           {(['login', 'register'] as const).map((m) => (
@@ -107,6 +108,7 @@ function Field(props: {
 
 const styles = StyleSheet.create({
   container: { padding: space.xl, gap: space.md, flexGrow: 1, justifyContent: 'center' },
+  logo: { width: 84, height: 72, alignSelf: 'center', marginBottom: space.sm },
   brand: { color: colors.text, fontSize: 30, fontWeight: '700', marginBottom: space.md },
   tabs: { flexDirection: 'row', gap: space.sm },
   tab: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 },

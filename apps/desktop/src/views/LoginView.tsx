@@ -56,7 +56,7 @@ export function LoginView() {
     <div className="login">
       <form className="login-card" onSubmit={submit}>
         <div className="brand">
-          <img src="/logo.svg" alt="" width={48} height={48} />
+          <img src="/logo.png" alt="" width={56} height={48} />
           <h1>Nexus</h1>
         </div>
         <div className="tabs">
