@@ -1,4 +1,4 @@
-import { settings } from "./settings";
+import { isDeviceError, micDeviceId } from "./settings";
 
 /** Longest voice message (stops by itself). */
 export const MAX_VOICE_MS = 10 * 60 * 1000;
@@ -17,16 +17,20 @@ export class VoiceRecorder {
   onAutoStop?: () => void;
 
   async start(): Promise<void> {
-    const s = settings();
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        deviceId: s.inputDeviceId && s.inputDeviceId !== "default" ? { ideal: s.inputDeviceId } : undefined,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        channelCount: 1,
-      },
+    const audio = (deviceId: ConstrainDOMString | undefined) => ({
+      deviceId,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      channelCount: 1,
     });
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: audio(micDeviceId()) });
+    } catch (e) {
+      // Chosen mic unplugged: record from the system default instead.
+      if (!micDeviceId() || !isDeviceError(e)) throw e;
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: audio(undefined) });
+    }
     const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "";
     this.recorder = new MediaRecorder(this.stream, { mimeType, audioBitsPerSecond: 48_000 });
     this.chunks = [];

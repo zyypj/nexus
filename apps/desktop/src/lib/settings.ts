@@ -90,3 +90,25 @@ export const useSettings = create<SettingsStore>()((set, get) => ({
 }));
 
 export const settings = () => useSettings.getState();
+
+/** True for a real device id (not the "default"/"communications" aliases). */
+export function isChosenMic(id: string | undefined): id is string {
+  return !!id && id !== "default" && id !== "communications";
+}
+
+/**
+ * The chosen microphone as a getUserMedia constraint. `exact`, not `ideal`:
+ * with `ideal` Chromium may open another device without any error, typically
+ * the Windows default, which can be a virtual mic that only sends silence
+ * (Steam Streaming Microphone). Callers fall back to the default explicitly.
+ */
+export function micDeviceId(id = settings().inputDeviceId): ConstrainDOMString | undefined {
+  return isChosenMic(id) ? { exact: id } : undefined;
+}
+
+/** Virtual inputs that only produce silence unless an app feeds them. */
+export const SILENT_VIRTUAL_MIC = /steam streaming/i;
+
+/** getUserMedia failures that mean "that device is not there / not usable". */
+export const isDeviceError = (e: unknown) =>
+  ["OverconstrainedError", "NotFoundError", "NotReadableError", "AbortError"].includes((e as Error)?.name);

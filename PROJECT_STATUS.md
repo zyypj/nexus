@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-08 (versão 0.2.1).
+Última atualização: 2026-10-08 (versão 0.2.2).
 
 ## Fase atual
 
@@ -89,6 +89,20 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
+
+## 0.2.2 — microfone escolhido de verdade
+
+- Bug reportado: o Nexus gravava do **Steam Streaming Microphone** (padrão do Windows, só
+  silêncio) mesmo com o Realtek escolhido nas configurações. Causa: o mic era pedido com
+  `deviceId: { ideal }`, e o WebView2 pode abrir outro dispositivo sem erro; o LiveKit então
+  seguia no dispositivo errado em todo reinício.
+- Agora o mic escolhido é pedido com `exact` (chamadas, mensagens de voz e "Testar microfone").
+  Se ele não abrir, o app usa o padrão do Windows **e avisa**. Depois de qualquer reinício da
+  trilha, ou quando os dispositivos mudam, confere qual abriu e volta para o escolhido.
+- O teste de microfone mostra qual dispositivo está ouvindo e avisa sobre o mic virtual da Steam;
+  o aviso de "só silêncio" na call diz o nome do dispositivo.
+- ⚠️ Captura real não testada aqui (o navegador de testes bloqueia microfone); testes unitários
+  da regra de dispositivo.
 
 ## 0.2.1 — botão direito e correções do primeiro uso dos servidores
 

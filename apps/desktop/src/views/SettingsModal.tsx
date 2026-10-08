@@ -5,7 +5,15 @@ import { Avatar } from "../components/Avatar";
 import { Modal } from "../components/Modal";
 import { client, useNexus, useSession } from "../lib/nexus";
 import { invoke, isTauri, listen } from "../lib/platform";
-import { type HotkeyAction, type HotkeyBinding, type NoiseMode, useSettings } from "../lib/settings";
+import {
+  type HotkeyAction,
+  type HotkeyBinding,
+  type NoiseMode,
+  SILENT_VIRTUAL_MIC,
+  isDeviceError,
+  micDeviceId,
+  useSettings,
+} from "../lib/settings";
 import { playSound } from "../lib/sounds";
 import { checkForUpdates, useUpdater } from "../lib/updater";
 
@@ -195,18 +203,32 @@ function splitDefault(devices: MediaDeviceInfo[]): { real: MediaDeviceInfo[]; de
   };
 }
 
+/**
+ * Mic test with the same device rule as calls (`exact`), showing which device
+ * actually opened, so a silent virtual mic or an unplugged one is obvious.
+ */
 function MicMeter({ deviceId }: { deviceId: string }) {
   const bar = useRef<HTMLDivElement>(null);
   const [on, setOn] = useState(false);
+  const [opened, setOpened] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
+    setOpened(null);
+    setError(null);
     if (!on) return;
     let stream: MediaStream | null = null;
     let raf = 0;
+    let cancelled = false;
     const ctx = new AudioContext();
-    void navigator.mediaDevices
-      .getUserMedia({ audio: { deviceId: deviceId !== "default" ? { ideal: deviceId } : undefined } })
+    navigator.mediaDevices
+      .getUserMedia({ audio: { deviceId: micDeviceId(deviceId) } })
       .then((s) => {
+        if (cancelled) {
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
         stream = s;
+        setOpened(s.getAudioTracks()[0]?.label ?? "");
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 512;
         ctx.createMediaStreamSource(s).connect(analyser);
@@ -219,8 +241,16 @@ function MicMeter({ deviceId }: { deviceId: string }) {
           raf = requestAnimationFrame(tick);
         };
         tick();
-      });
+      })
+      .catch((e: Error) =>
+        setError(
+          isDeviceError(e)
+            ? "Esse microfone não está disponível (desconectado ou em uso exclusivo por outro programa)."
+            : `Não foi possível abrir o microfone: ${e.message}`,
+        ),
+      );
     return () => {
+      cancelled = true;
       cancelAnimationFrame(raf);
       stream?.getTracks().forEach((t) => t.stop());
       void ctx.close();
@@ -234,6 +264,14 @@ function MicMeter({ deviceId }: { deviceId: string }) {
       <div className="meter">
         <div ref={bar} />
       </div>
+      {opened !== null && (
+        <small className={`mic-test-note${SILENT_VIRTUAL_MIC.test(opened) ? " warn" : ""}`}>
+          {SILENT_VIRTUAL_MIC.test(opened)
+            ? `"${opened}" é um microfone virtual da Steam e não capta som. Escolha seu microfone acima.`
+            : `Ouvindo: ${opened || "microfone"}`}
+        </small>
+      )}
+      {error && <small className="mic-test-note warn">{error}</small>}
     </div>
   );
 }
@@ -260,6 +298,11 @@ function Voice() {
           ))}
         </select>
       </label>
+      {s.inputDeviceId === "default" && SILENT_VIRTUAL_MIC.test(inputs.defaultLabel) && (
+        <p className="form-error">
+          O padrão do Windows é o microfone virtual da Steam, que não capta som. Escolha seu microfone na lista.
+        </p>
+      )}
       <MicMeter deviceId={s.inputDeviceId} />
       <label>
         Saída de áudio

@@ -12,11 +12,20 @@ import {
   Room,
   RoomEvent,
   Track,
+  TrackEvent,
   VideoPresets,
 } from "livekit-client";
 import { client } from "../lib/nexus";
 import { invoke } from "../lib/platform";
-import { type ScreenQuality, settings, useSettings } from "../lib/settings";
+import {
+  SILENT_VIRTUAL_MIC,
+  type ScreenQuality,
+  isChosenMic,
+  isDeviceError,
+  micDeviceId,
+  settings,
+  useSettings,
+} from "../lib/settings";
 import { playSound, startLoop, stopLoop } from "../lib/sounds";
 import { type ParticipantView, idleCall as idle, setCallUi as setUi, useCall } from "./callStore";
 import { releaseAudio, resumeAudio, sharedAudioContext } from "./audioContext";
@@ -25,10 +34,11 @@ import { type Limitation, QualityGovernor, type QualityPreset, autoStart, preset
 import { type CaptureSource, NativeScreenCapture } from "./nativeScreen";
 import { type CaptureMode, SystemAudioCapture } from "./systemAudio";
 
-function audioConstraints() {
+/** Mic capture options; `fallback` = the system default instead of the chosen device. */
+function audioConstraints(fallback = false) {
   const s = settings();
   return {
-    deviceId: s.inputDeviceId && s.inputDeviceId !== "default" ? { ideal: s.inputDeviceId } : undefined,
+    deviceId: fallback ? undefined : micDeviceId(),
     echoCancellation: s.echoCancellation,
     autoGainControl: s.autoGainControl,
     // Browser (WebRTC APM) suppression only in Standard mode; Enhanced uses
@@ -68,6 +78,7 @@ export class CallManager {
   private rejoinAttempt = 0;
   private leaving = false;
   private callingTimer: ReturnType<typeof setTimeout> | null = null;
+  private watchedMic: LocalAudioTrack | null = null;
 
   constructor() {
     this.wantMuted = useCall.getState().muted;
@@ -131,6 +142,7 @@ export class CallManager {
     });
     this.room = room;
     this.wire(room);
+    navigator.mediaDevices.addEventListener("devicechange", this.onDeviceChange);
     try {
       await room.connect(url, token, { autoSubscribe: true });
     } catch (e) {
@@ -169,6 +181,8 @@ export class CallManager {
     await this.stopSystemAudio();
     const room = this.room;
     this.room = null;
+    navigator.mediaDevices.removeEventListener("devicechange", this.onDeviceChange);
+    this.watchedMic = null;
     if (room) await room.disconnect(true);
     for (const el of document.querySelectorAll("audio[data-nexus-audio]")) el.remove();
     await this.rnnoise?.destroy();
@@ -219,9 +233,14 @@ export class CallManager {
       .on(RoomEvent.LocalTrackPublished, bump)
       // The mic delivers only digital silence (dead/disabled device, or the
       // wrong one picked): say so instead of letting people talk to nobody.
-      .on(RoomEvent.LocalAudioSilenceDetected, () =>
-        setUi({ error: "Seu microfone não está captando som. Confira o dispositivo em Configurações → Voz e vídeo." }),
-      )
+      .on(RoomEvent.LocalAudioSilenceDetected, () => {
+        const label = this.micTrack()?.mediaStreamTrack.label ?? "";
+        setUi({
+          error: SILENT_VIRTUAL_MIC.test(label)
+            ? `Você está no "${label}", um microfone virtual da Steam que não capta som. Escolha seu microfone em Configurações → Voz e vídeo.`
+            : `Seu microfone${label ? ` (${label})` : ""} não está captando som. Confira o dispositivo em Configurações → Voz e vídeo.`,
+        });
+      })
       .on(RoomEvent.LocalTrackUnpublished, (pub) => {
         // Browser's own "stop sharing" button ends the screen track.
         if (pub.source === Track.Source.ScreenShare) void this.afterScreenStopped();
@@ -270,13 +289,69 @@ export class CallManager {
     const room = this.room;
     if (!room) return;
     try {
-      await room.localParticipant.setMicrophoneEnabled(true, audioConstraints());
+      try {
+        await room.localParticipant.setMicrophoneEnabled(true, audioConstraints());
+      } catch (e) {
+        // The chosen mic is gone: use the Windows default, and say so.
+        if (!micDeviceId() || !isDeviceError(e)) throw e;
+        await room.localParticipant.setMicrophoneEnabled(true, audioConstraints(true));
+        this.warnFallback();
+      }
     } catch (e) {
       setUi({ error: `Microfone indisponível: ${(e as Error).message}` });
       return;
     }
+    this.watchMic();
     await this.applyNoiseMode();
     await this.applyMicGate();
+  }
+
+  private micTrack(): LocalAudioTrack | undefined {
+    return this.micPub()?.track as LocalAudioTrack | undefined;
+  }
+
+  private warnFallback() {
+    const label = this.micTrack()?.mediaStreamTrack.label;
+    setUi({
+      error: `O microfone escolhido não está disponível. Usando o padrão do Windows${label ? ` (${label})` : ""}.`,
+    });
+  }
+
+  /**
+   * Keeps the call on the chosen mic: LiveKit re-acquires the track by itself
+   * (device reset, another app grabbing it) and Chromium may hand over a
+   * different device, so check after every restart and when devices change
+   * (the chosen mic plugged back in).
+   */
+  private watchMic() {
+    const track = this.micTrack();
+    if (!track || this.watchedMic === track) return;
+    this.watchedMic = track;
+    track.on(TrackEvent.Restarted, () => void this.ensureChosenMic());
+    void this.ensureChosenMic();
+  }
+
+  private onDeviceChange = () => void this.ensureChosenMic();
+
+  private ensuring = false;
+  private async ensureChosenMic() {
+    const track = this.micTrack();
+    const chosen = settings().inputDeviceId;
+    if (!track || !isChosenMic(chosen) || this.ensuring) return;
+    // An ended track (the chosen mic was unplugged mid-call and LiveKit's own
+    // re-acquire failed) is restarted too: back on the mic, or the default.
+    const ended = track.mediaStreamTrack.readyState === "ended";
+    if (!ended && track.mediaStreamTrack.getSettings().deviceId === chosen) return;
+    const present = (await navigator.mediaDevices.enumerateDevices()).some(
+      (d) => d.kind === "audioinput" && d.deviceId === chosen,
+    );
+    if (!present && !ended) return;
+    this.ensuring = true;
+    try {
+      await this.restartMic();
+    } finally {
+      this.ensuring = false;
+    }
   }
 
   /** Effective mic state = !(muted || deafened || (PTT && !held)). */
@@ -316,7 +391,7 @@ export class CallManager {
    * falls back to the system default so the call never ends up silent.
    */
   async restartMic() {
-    const track = this.micPub()?.track as LocalAudioTrack | undefined;
+    const track = this.micTrack();
     if (!track) return;
     if (this.rnnoise) {
       await track.stopProcessor().catch(() => undefined);
@@ -324,9 +399,10 @@ export class CallManager {
     }
     try {
       await track.restartTrack(audioConstraints());
-    } catch (e) {
-      setUi({ error: `Não foi possível usar esse microfone (${(e as Error).message}). Usando o padrão do sistema.` });
-      await track.restartTrack({ ...audioConstraints(), deviceId: undefined }).catch(() => undefined);
+    } catch {
+      // Same echo cancellation / noise / gain settings, default device.
+      await track.restartTrack(audioConstraints(true)).catch(() => undefined);
+      this.warnFallback();
     }
     await this.applyNoiseMode();
     await this.applyMicGate();

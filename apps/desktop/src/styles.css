@@ -1217,8 +1217,16 @@ video.mirror {
 }
 .mic-test {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-md);
+}
+.mic-test-note {
+  flex-basis: 100%;
+  color: var(--c-text-muted);
+}
+.mic-test-note.warn {
+  color: var(--c-danger);
 }
 .meter {
   flex: 1;
