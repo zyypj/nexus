@@ -100,6 +100,8 @@ aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Wi
   o handler de drop do Tauri foi desligado e drops fora da área não abrem o arquivo no WebView.
   Testado na cópia de teste com `Input.dispatchDragEvent`: arquivo de 300 MB arrastado, progresso
   7%→97%, enviado. Arquivo vazio/pasta agora é recusado no app (antes falhava a mensagem toda).
+- Produção: `MAX_UPLOAD_SIZE=0` no painel; servidor reiniciou limpo (correção do shutdown
+  confirmada) e se atualizou 0.1.1 → 0.1.2; `/api/info` mostra `max_upload_size: 0`.
 
 ## Funcionalidades prontas (verificadas)
 
