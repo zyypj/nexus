@@ -10,10 +10,12 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock rustfmt.toml ./
 COPY services/server/Cargo.toml services/server/Cargo.toml
 COPY scripts/perf-bench/Cargo.toml scripts/perf-bench/Cargo.toml
-RUN mkdir -p services/server/src scripts/perf-bench/src \
+COPY tests/noise-bench/Cargo.toml tests/noise-bench/Cargo.toml
+RUN mkdir -p services/server/src scripts/perf-bench/src tests/noise-bench/src \
     && echo "fn main() {}" > services/server/src/main.rs \
     && touch services/server/src/lib.rs \
     && echo "fn main() {}" > scripts/perf-bench/src/main.rs \
+    && echo "fn main() {}" > tests/noise-bench/src/main.rs \
     && cargo build --release --locked -p nexus-server \
     && rm -rf services/server/src
 COPY services/server services/server

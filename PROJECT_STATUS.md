@@ -30,6 +30,22 @@ debug).
 | 13 Pterodactyl | ⚠️ eggs + Dockerfiles + entrypoints escritos; geração do livekit.yaml testada; imagens Docker **não construídas** (Docker Desktop parado / pouco espaço no C:) |
 | 14 Benchmarks/otimizações | ✅ Windows medido; otimizações aplicadas com antes/depois |
 
+## Releases e atualizações automáticas (sessão 1, parte 2)
+
+- Repositório público: https://github.com/zyypj/nexus. Releases geradas por
+  `.github/workflows/release.yml` ao enviar uma tag `vX.Y.Z` (`node scripts/release.mjs X.Y.Z`).
+- Eggs do Pterodactyl agora usam `ghcr.io/parkervcp/yolks:debian` + `nexus-start.sh` /
+  `livekit-start.sh`: baixam e atualizam sozinhos a partir das releases (SHA-256 conferido).
+  Testados localmente (instalação, já atualizado, checksum adulterado, GitHub fora do ar,
+  download real do LiveKit).
+- Windows: `tauri-plugin-updater` + `latest.json` assinado (minisign). Android: checa a API de
+  releases e instala o APK pelo instalador do sistema.
+- Secrets já configurados no GitHub: `TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)` e
+  `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+  `ANDROID_KEY_PASSWORD`. **Originais (com backup obrigatório!) em `D:\nexus-build\keys`** —
+  perder a chave do updater ou a keystore impede atualizar os apps já instalados.
+- Detalhes: docs/UPDATES.md.
+
 ## Funcionalidades prontas (verificadas)
 
 Servidor (`services/server`): cadastro só com convite (`ALLOW_PUBLIC_REGISTRATION=false`),
