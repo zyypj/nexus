@@ -82,8 +82,8 @@ android {
         applicationId "app.nexus.android"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 103
-        versionName "0.1.3"
+        versionCode 104
+        versionName "0.1.4"
         // Self-hosted servers are often plain http://IP:port (e.g. Pterodactyl
         // without a proxy). Prefer HTTPS; see docs/SECURITY.md.
         manifestPlaceholders = [usesCleartextTraffic: "true"]
