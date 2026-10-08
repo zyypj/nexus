@@ -83,9 +83,9 @@ Problemas encontrados no primeiro uso com o servidor do usuário (painel.tadeu.s
 
 Produção (painel.tadeu.space, 2026-10-08): **Nexus Server atualizou sozinho 0.1.0 → 0.1.1** no
 restart (log do `nexus-start.sh`), `/health` ok; Schedule diário às 05:00 (restart = pega novas
-versões). LiveKit no ar com `LIVEKIT_PORT=7880` no painel (contorna o bug do launcher 0.1.0);
-**falta um Reinstall do LiveKit** (Settings → Reinstall Server) para trocar para o launcher novo,
-que se autoatualiza — bloqueado para mim pela política de permissões, fica com o usuário.
+versões). Depois o usuário fez Reinstall do LiveKit e do Nexus Server: ambos sobem com os launchers novos
+(LiveKit `portHttp: 7880`, Nexus 0.1.1), banco `data/nexus.db` preservado. A partir daqui os dois
+launchers e o servidor se atualizam sozinhos pelas releases.
 
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
