@@ -1,5 +1,6 @@
 mod capture_bar;
 mod hotkeys;
+mod notifications;
 pub mod screen_capture;
 mod secrets;
 pub mod system_audio;
@@ -56,7 +57,7 @@ fn app_ready() -> u128 {
     ms
 }
 
-fn show_main(app: &tauri::AppHandle) {
+pub(crate) fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
@@ -89,6 +90,7 @@ pub fn run() {
             hotkeys::hotkeys_set,
             hotkeys::hotkeys_capture,
             hotkeys::hotkey_name,
+            notifications::notify_show,
             system_audio::system_audio_support,
             system_audio::system_audio_apps,
             system_audio::system_audio_start,

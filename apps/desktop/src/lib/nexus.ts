@@ -1,7 +1,7 @@
 import { NexusClient, type NexusState, conversationTitle } from "@nexus/shared";
 import { useStore } from "zustand";
 import { create } from "zustand";
-import { deviceName, notify, tokenStore } from "./platform";
+import { deviceName, listen, notify, tokenStore } from "./platform";
 import { playSound } from "./sounds";
 import { settings } from "./settings";
 
@@ -33,6 +33,19 @@ if (typeof window !== "undefined") {
   window.addEventListener("online", () => useSession.getState().client?.gateway.reconnectNow());
 }
 
+// Clicked a toast: the window is already back (Rust); open the conversation,
+// switching to its server or to Início.
+void listen<string | null>("notification-clicked", (conversationId) => {
+  const c = useSession.getState().client;
+  if (!c || !conversationId) return;
+  const conv = c.state.conversations[conversationId];
+  if (!conv) return;
+  void import("./ui").then(({ useUi }) => {
+    useUi.getState().set({ serverId: conv.server_id ?? null });
+    void c.openConversation(conversationId);
+  });
+});
+
 export function createClient(serverUrl: string): NexusClient {
   const old = useSession.getState().client;
   old?.gateway.stop();
@@ -49,7 +62,7 @@ export function createClient(serverUrl: string): NexusClient {
       const conv = s.conversations[m.conversation_id];
       const title = conv && conv.kind === "group" ? `${author} em ${conversationTitle(s, conv)}` : author;
       const body = m.content || (m.attachments.length ? "📎 Anexo" : "");
-      void notify(title, body.slice(0, 140));
+      void notify(title, body.slice(0, 140), m.conversation_id);
     },
   });
   useSession.setState({ client });

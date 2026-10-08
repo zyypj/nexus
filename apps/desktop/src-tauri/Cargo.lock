@@ -2239,6 +2239,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tauri-winrt-notification",
  "webview2-com",
  "windows",
  "windows-core",

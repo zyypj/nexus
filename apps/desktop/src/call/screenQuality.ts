@@ -29,23 +29,34 @@ export type Limitation = "none" | "cpu" | "bandwidth" | "other";
  * Decides quality steps from periodic sender stats. Pure so it can be unit
  * tested: feed it one sample every few seconds.
  *
+ * - Ignores the first samples (~12 s): the bandwidth estimator is still
+ *   ramping up and reports "bandwidth" even on fast links.
  * - Steps DOWN after 3 consecutive limited samples (~15 s): never keep
  *   sending 1080p60 a machine or link cannot sustain.
- * - In auto mode, steps UP after 12 clean samples (~60 s) with the encoder
- *   hitting its frame rate, but only to 1080p60 for motion content on
- *   machines with 8+ logical cores.
+ * - Steps back UP after 12 clean samples (~60 s) with the encoder hitting
+ *   its frame rate: a manual preset recovers up to the chosen quality (a
+ *   short dip must not leave the stream at 720p for good); auto mode climbs
+ *   to 1080p30, or 1080p60 for motion content on machines with 8+ cores.
  */
 export class QualityGovernor {
   private limited = 0;
   private clean = 0;
+  private warmup = 3;
+  private readonly ceiling: QualityPreset["id"];
 
   constructor(
     public current: QualityPreset,
-    private readonly auto: boolean,
+    auto: boolean,
     private readonly allow60: boolean,
-  ) {}
+  ) {
+    this.ceiling = auto ? (allow60 ? "1080p60" : "1080p30") : current.id;
+  }
 
   sample(limitation: Limitation, fps: number): QualityPreset | null {
+    if (this.warmup > 0) {
+      this.warmup--;
+      return null;
+    }
     if (limitation === "cpu" || limitation === "bandwidth") {
       this.limited++;
       this.clean = 0;
@@ -61,7 +72,7 @@ export class QualityGovernor {
         return lower;
       }
     }
-    if (this.auto && this.clean >= 12 && fps >= this.current.fps * 0.9) {
+    if (this.current.id !== this.ceiling && this.clean >= 12 && fps >= this.current.fps * 0.9) {
       this.clean = 0;
       const higher = this.higher();
       if (higher) {
@@ -80,7 +91,7 @@ export class QualityGovernor {
 
   private higher(): QualityPreset | null {
     if (this.current.id === "720p30") return preset("1080p30");
-    if (this.current.id === "1080p30" && this.allow60) return preset("1080p60");
+    if (this.current.id === "1080p30" && (this.allow60 || this.ceiling === "1080p60")) return preset("1080p60");
     return null;
   }
 }

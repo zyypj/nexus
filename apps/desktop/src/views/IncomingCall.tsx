@@ -34,7 +34,7 @@ export function IncomingCall() {
 
   const show = ringing && !myCallId && !dismissed.has(ringing.id);
   useEffect(() => {
-    if (show) void notify("Chamada recebida", `${caller ?? "Alguém"} está chamando em ${title}`);
+    if (show) void notify("Chamada recebida", `${caller ?? "Alguém"} está chamando em ${title}`, ringing?.conversation_id);
   }, [show, caller, title]);
   useEffect(() => {
     if (!show) return;

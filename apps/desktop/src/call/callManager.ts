@@ -38,6 +38,21 @@ function audioConstraints() {
   };
 }
 
+/**
+ * Screen share codec by content:
+ * - text / still screens: VP9 (L1T3, one resolution) — libvpx has a
+ *   screen-content mode that keeps small text sharp at a fraction of the
+ *   bitrate; hardware H.264 encoders ignore the content hint and blur text.
+ * - motion (games, video): H.264, the codec WebView2 most likely encodes in
+ *   hardware, so 1080p60 stays cheap.
+ * VP8 is the fallback for receivers that cannot decode the main codec.
+ */
+function screenCodec(motion: boolean) {
+  return motion
+    ? { videoCodec: "h264" as const, backupCodec: { codec: "vp8" as const } }
+    : { videoCodec: "vp9" as const, scalabilityMode: "L1T3" as const, backupCodec: { codec: "vp8" as const } };
+}
+
 export class CallManager {
   room: Room | null = null;
   private wantMuted = false;
@@ -70,7 +85,9 @@ export class CallManager {
     const join = await client().api.startCall(conversationId);
     await this.connect(join.call.id, join.call.conversation_id, join.livekit_url, join.livekit_token);
     // Ringback while nobody else has joined yet (stops on join or after 45 s).
-    if (this.room && this.room.remoteParticipants.size === 0) {
+    // Voice channels are rooms people drop into: nobody is being called.
+    const channel = !!client().state.conversations[conversationId]?.server_id;
+    if (!channel && this.room && this.room.remoteParticipants.size === 0) {
       startLoop("calling");
       this.callingTimer = setTimeout(() => this.stopCalling(), 45_000);
     }
@@ -200,6 +217,11 @@ export class CallManager {
         if (!room.canPlaybackAudio) void room.startAudio().catch(() => undefined);
       })
       .on(RoomEvent.LocalTrackPublished, bump)
+      // The mic delivers only digital silence (dead/disabled device, or the
+      // wrong one picked): say so instead of letting people talk to nobody.
+      .on(RoomEvent.LocalAudioSilenceDetected, () =>
+        setUi({ error: "Seu microfone não está captando som. Confira o dispositivo em Configurações → Voz e vídeo." }),
+      )
       .on(RoomEvent.LocalTrackUnpublished, (pub) => {
         // Browser's own "stop sharing" button ends the screen track.
         if (pub.source === Track.Source.ScreenShare) void this.afterScreenStopped();
@@ -288,12 +310,26 @@ export class CallManager {
     }
   }
 
-  /** Re-acquires the mic with new constraints (device, NS, AEC, AGC). */
+  /**
+   * Re-acquires the mic with new constraints (device, NS, AEC, AGC). RNNoise
+   * is detached first and re-attached to the new track, and a failed switch
+   * falls back to the system default so the call never ends up silent.
+   */
   async restartMic() {
     const track = this.micPub()?.track as LocalAudioTrack | undefined;
     if (!track) return;
-    await track.restartTrack(audioConstraints());
+    if (this.rnnoise) {
+      await track.stopProcessor().catch(() => undefined);
+      this.rnnoise = null;
+    }
+    try {
+      await track.restartTrack(audioConstraints());
+    } catch (e) {
+      setUi({ error: `Não foi possível usar esse microfone (${(e as Error).message}). Usando o padrão do sistema.` });
+      await track.restartTrack({ ...audioConstraints(), deviceId: undefined }).catch(() => undefined);
+    }
     await this.applyNoiseMode();
+    await this.applyMicGate();
   }
 
   async toggleMute() {
@@ -444,8 +480,7 @@ export class CallManager {
       await room.localParticipant.publishTrack(track, {
         source: Track.Source.ScreenShare,
         name: "screen",
-        videoCodec: "h264",
-        backupCodec: { codec: "vp8" },
+        ...screenCodec(motion),
         screenShareEncoding: { maxBitrate: p.maxBitrate, maxFramerate: p.fps },
         degradationPreference: motion ? "maintain-framerate" : "maintain-resolution",
         simulcast: false,
@@ -477,9 +512,7 @@ export class CallManager {
           systemAudio: "exclude",
         },
         {
-          // H.264 is the codec WebView2 is most likely to hardware-encode.
-          videoCodec: "h264",
-          backupCodec: { codec: "vp8" },
+          ...screenCodec(opts.motion),
           screenShareEncoding: { maxBitrate: p.maxBitrate, maxFramerate: p.fps },
           degradationPreference: opts.motion ? "maintain-framerate" : "maintain-resolution",
           simulcast: false,

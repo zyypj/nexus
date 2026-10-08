@@ -180,6 +180,21 @@ function useDevices(kind: MediaDeviceKind) {
   return devices;
 }
 
+/**
+ * Chromium lists the virtual "default" and "communications" entries next to
+ * the real devices. Showing them as options duplicated the "default" value,
+ * so picking "Padrão - X" looked like the choice did not change; the default
+ * device's name goes into the "Padrão do sistema" label instead.
+ */
+function splitDefault(devices: MediaDeviceInfo[]): { real: MediaDeviceInfo[]; defaultLabel: string } {
+  const def = devices.find((d) => d.deviceId === "default");
+  const name = def?.label.replace(/^[^-]*-\s*/, "") ?? "";
+  return {
+    real: devices.filter((d) => d.deviceId !== "default" && d.deviceId !== "communications"),
+    defaultLabel: name ? `Padrão do sistema (${name})` : "Padrão do sistema",
+  };
+}
+
 function MicMeter({ deviceId }: { deviceId: string }) {
   const bar = useRef<HTMLDivElement>(null);
   const [on, setOn] = useState(false);
@@ -225,8 +240,8 @@ function MicMeter({ deviceId }: { deviceId: string }) {
 
 function Voice() {
   const s = useSettings();
-  const inputs = useDevices("audioinput");
-  const outputs = useDevices("audiooutput");
+  const inputs = splitDefault(useDevices("audioinput"));
+  const outputs = splitDefault(useDevices("audiooutput"));
   const cams = useDevices("videoinput");
   const restartMic = (patch: Partial<typeof s>) => {
     s.set(patch);
@@ -237,8 +252,8 @@ function Voice() {
       <label>
         Microfone
         <select value={s.inputDeviceId} onChange={(e) => restartMic({ inputDeviceId: e.target.value })}>
-          <option value="default">Padrão do sistema</option>
-          {inputs.map((d) => (
+          <option value="default">{inputs.defaultLabel}</option>
+          {inputs.real.map((d) => (
             <option key={d.deviceId} value={d.deviceId}>
               {d.label || "Microfone"}
             </option>
@@ -249,8 +264,8 @@ function Voice() {
       <label>
         Saída de áudio
         <select value={s.outputDeviceId} onChange={(e) => s.set({ outputDeviceId: e.target.value })}>
-          <option value="default">Padrão do sistema</option>
-          {outputs.map((d) => (
+          <option value="default">{outputs.defaultLabel}</option>
+          {outputs.real.map((d) => (
             <option key={d.deviceId} value={d.deviceId}>
               {d.label || "Alto-falante"}
             </option>

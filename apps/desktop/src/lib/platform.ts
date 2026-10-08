@@ -27,10 +27,21 @@ export function tokenStore(serverUrl: string): TokenStore {
   };
 }
 
-export async function notify(title: string, body: string): Promise<void> {
+/**
+ * System notification. On Windows it goes through our own toast command so a
+ * click brings the window back and opens `conversationId` (see
+ * src-tauri/src/notifications.rs); elsewhere through the plugin.
+ */
+export async function notify(title: string, body: string, conversationId?: string): Promise<void> {
   if (!isTauri) {
     if ("Notification" in window && Notification.permission === "granted") new Notification(title, { body });
     return;
+  }
+  try {
+    await invoke("notify_show", { title, body, conversationId: conversationId ?? null });
+    return;
+  } catch {
+    // not Windows: plugin below
   }
   const n = await import("@tauri-apps/plugin-notification");
   let granted = await n.isPermissionGranted();

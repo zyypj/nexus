@@ -86,7 +86,9 @@ class CallManager {
     const join = await client().api.startCall(conversationId);
     await this.connect(join.call.id, join.call.conversation_id, join.livekit_url, join.livekit_token);
     // Ringback while nobody else has joined yet (stops on join or after 45 s).
-    if (this.room && this.room.remoteParticipants.size === 0) {
+    // Voice channels are rooms people drop into: nobody is being called.
+    const channel = !!client().state.conversations[conversationId]?.server_id;
+    if (!channel && this.room && this.room.remoteParticipants.size === 0) {
       startLoop('calling');
       this.callingTimer = setTimeout(() => this.stopCalling(), 45_000);
     }

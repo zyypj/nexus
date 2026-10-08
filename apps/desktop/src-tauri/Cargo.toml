@@ -29,6 +29,8 @@ anyhow = "1"
 [target.'cfg(windows)'.dependencies]
 base64 = "0.22"
 jpeg-encoder = "0.6"
+# Toasts with a click handler (same version notify-rust already pulls in).
+tauri-winrt-notification = "0.8"
 # Same version as wry's, so its ICoreWebView2 types are shared.
 webview2-com = "0.39"
 windows-core = "0.62"

@@ -3,6 +3,7 @@ import { type ClientMessage, formatBytes, formatDay, formatTime, memberColor, me
 import { QUICK_REACTIONS } from "@nexus/ui";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { AudioPlayer, VideoPlayer, mediaKind } from "../components/MediaPlayers";
@@ -121,7 +122,7 @@ const MessageItem = memo(function MessageItem({
   const authorBlocked = useNexus((s) => !!s.blocked[m.author_id]);
   const replyAuthor = useNexus((s) => (m.reply_to ? s.users[m.reply_to.author_id]?.display_name : undefined));
   const [editing, setEditing] = useState(false);
-  const [picker, setPicker] = useState(false);
+  const [picker, setPicker] = useState<HTMLElement | null>(null);
   const [revealed, setRevealed] = useState(false);
   const mine = m.author_id === myId;
 
@@ -136,7 +137,7 @@ const MessageItem = memo(function MessageItem({
   }
 
   return (
-    <div className={`message${compact ? " compact" : ""}${m.local ? ` local ${m.local}` : ""}`}>
+    <div className={`message${compact ? " compact" : ""}${m.local ? ` local ${m.local}` : ""}${picker ? " picking" : ""}`}>
       {!compact && <Avatar user={author} size={38} />}
       {compact && <time className="gutter-time">{formatTime(m.created_at)}</time>}
       <div className="message-main">
@@ -206,7 +207,11 @@ const MessageItem = memo(function MessageItem({
       {!m.local && !editing && (
         <div className="message-actions">
           {canReact && (
-            <button type="button" className="icon-btn small" title="Reagir" onClick={() => setPicker((p) => !p)}>
+            <button type="button" className="icon-btn small" title="Reagir" onClick={(e) => {
+                const btn = e.currentTarget;
+                setPicker((p) => (p ? null : btn));
+              }}
+            >
               <Icon name="smile" size={16} />
             </button>
           )}
@@ -231,26 +236,106 @@ const MessageItem = memo(function MessageItem({
             </button>
           )}
           {picker && (
-            <div className="emoji-picker" onMouseLeave={() => setPicker(false)}>
-              {QUICK_REACTIONS.map((e) => (
-                <button
-                  type="button"
-                  key={e}
-                  onClick={() => {
-                    setPicker(false);
-                    void client().toggleReaction(m.conversation_id, m.id, e);
-                  }}
-                >
-                  {e}
-                </button>
-              ))}
-            </div>
+            <ReactionPicker
+              anchor={picker}
+              onClose={() => setPicker(null)}
+              onPick={(e) => {
+                setPicker(null);
+                void client().toggleReaction(m.conversation_id, m.id, e);
+              }}
+            />
           )}
         </div>
       )}
     </div>
   );
 });
+
+/**
+ * Quick reactions, rendered in a portal so the scrolling message list never
+ * clips it. Opens below the button, or above it when there is no room.
+ */
+function ReactionPicker({
+  anchor,
+  onPick,
+  onClose,
+}: { anchor: HTMLElement; onPick: (emoji: string) => void; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; up: boolean } | null>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const a = anchor.getBoundingClientRect();
+    const margin = 8;
+    const below = a.bottom + 6;
+    const up = below + el.offsetHeight + margin > window.innerHeight;
+    setPos({
+      left: Math.min(Math.max(margin, a.right - el.offsetWidth), window.innerWidth - el.offsetWidth - margin),
+      top: up ? Math.max(margin, a.top - el.offsetHeight - 6) : below,
+      up,
+    });
+  }, [anchor]);
+
+  // Latest onClose without re-subscribing on every render.
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const down = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (!ref.current?.contains(t) && !anchor.contains(t)) close.current();
+    };
+    const key = (e: KeyboardEvent) => e.key === "Escape" && close.current();
+    const dismiss = () => close.current();
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("keydown", key);
+    window.addEventListener("resize", dismiss);
+    window.addEventListener("blur", dismiss);
+    document.addEventListener("scroll", dismiss, true);
+    return () => {
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("resize", dismiss);
+      window.removeEventListener("blur", dismiss);
+      document.removeEventListener("scroll", dismiss, true);
+    };
+  }, [anchor]);
+
+  return createPortal(
+    <div
+      ref={ref}
+      className={`emoji-picker${pos?.up ? " up" : ""}`}
+      role="menu"
+      style={pos ? { left: pos.left, top: pos.top } : { visibility: "hidden" }}
+    >
+      {QUICK_REACTIONS.map((e) => (
+        <button type="button" role="menuitem" key={e} title={`Reagir com ${e}`} onClick={() => onPick(e)}>
+          {e}
+        </button>
+      ))}
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * Full-window image viewer. Portaled to <body>: the message list uses
+ * `contain: strict` and transformed rows, which would otherwise trap a fixed
+ * overlay inside the list (under the call panel and later messages).
+ */
+function Lightbox({ url, alt, onClose }: { url: string; alt: string; onClose: () => void }) {
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [onClose]);
+  return createPortal(
+    <div className="lightbox" role="dialog" aria-label={alt} onClick={onClose}>
+      <img src={url} alt={alt} />
+    </div>,
+    document.body,
+  );
+}
 
 function EditBox({ message, onDone }: { message: ClientMessage; onDone: () => void }) {
   const [text, setText] = useState(message.content);
@@ -303,11 +388,7 @@ function AttachmentView({ a }: { a: Attachment }) {
             decoding="async"
           />
         </button>
-        {zoom && (
-          <div className="lightbox" onClick={() => setZoom(false)}>
-            <img src={url} alt={a.file_name} />
-          </div>
-        )}
+        {zoom && <Lightbox url={url} alt={a.file_name} onClose={() => setZoom(false)} />}
       </>
     );
   }

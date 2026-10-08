@@ -22,9 +22,14 @@ export class RnnoiseProcessor implements TrackProcessor<Track.Kind.Audio, AudioP
   private source?: MediaStreamAudioSourceNode;
   private node?: RnnoiseWorkletNode;
   private dest?: MediaStreamAudioDestinationNode;
+  private ctx?: AudioContext;
 
   async init(opts: AudioProcessorOptions): Promise<void> {
-    const ctx = opts.audioContext;
+    // LiveKit passes the context to init() but not to restart() (device
+    // switch), so keep the one from init.
+    const ctx = opts.audioContext ?? this.ctx;
+    if (!ctx) throw new Error("RNNoise: no AudioContext");
+    this.ctx = ctx;
     await addWorkletOnce(ctx, rnnoiseWorkletUrl);
     wasmBinary ??= loadRnnoise({ url: rnnoiseWasmUrl, simdUrl: rnnoiseSimdWasmUrl });
     const binary = await wasmBinary;

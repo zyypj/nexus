@@ -754,20 +754,29 @@ button.link {
   border-radius: var(--radius-sm);
   padding: 2px;
 }
-.message:hover .message-actions {
+.message:hover .message-actions,
+.message.picking .message-actions {
   display: flex;
 }
+.message.picking {
+  background: var(--c-surface);
+}
 .emoji-picker {
-  position: absolute;
-  right: 0;
-  top: 32px;
+  position: fixed;
+  left: 0;
+  top: 0;
   display: flex;
   gap: 2px;
   background: var(--c-surface-raised);
   border: 1px solid var(--c-border);
   border-radius: var(--radius-md);
   padding: 4px;
-  z-index: 10;
+  z-index: 1000;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  animation: slide-down 0.12s var(--ease);
+}
+.emoji-picker.up {
+  animation-name: pop-in;
 }
 .emoji-picker button {
   font-size: 20px;
@@ -843,11 +852,15 @@ button.link {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 2000;
+  cursor: zoom-out;
+  animation: fade-in 0.15s var(--ease);
 }
 .lightbox img {
   max-width: 92vw;
   max-height: 92vh;
+  border-radius: var(--radius-md);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
 }
 .failed {
   color: var(--c-danger);
