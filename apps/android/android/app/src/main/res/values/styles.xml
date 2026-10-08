@@ -4,6 +4,10 @@
     <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <!-- Customize your theme here. -->
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+        <!-- Nexus navy everywhere: no white flash on launch, dark system bars. -->
+        <item name="android:windowBackground">@color/nx_bg</item>
+        <item name="android:statusBarColor">@color/nx_bg</item>
+        <item name="android:navigationBarColor">@color/nx_bg</item>
     </style>
 
 </resources>

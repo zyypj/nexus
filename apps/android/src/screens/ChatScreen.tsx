@@ -7,42 +7,48 @@ import {
   formatBytes,
   formatDay,
   formatTime,
-  sameDay,
-  typingUsers,
   memberColor,
   memberName,
+  sameDay,
+  typingUsers,
 } from '@nexus/shared';
 import { QUICK_REACTIONS } from '@nexus/ui';
 import React, { memo, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   KeyboardAvoidingView,
   Linking,
   PermissionsAndroid,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import type { Nav } from '../App';
 import { calls, useCall } from '../call/callManager';
-import { client, useNexus } from '../lib/nexus';
-import { NexusNative, type PickedFile } from '../native/NexusNative';
-import { Avatar, Icon, IconButton } from '../ui/components';
-import { colors, common, space } from '../ui/theme';
 import { seekAudio, toggleAudio, useChatAudio } from '../lib/chatAudio';
+import { client, useNexus } from '../lib/nexus';
+import { mediaKind, openImage, openVideo } from '../media/media';
+import { NexusNative, type PickedFile } from '../native/NexusNative';
+import { Avatar, Gradient, Header, Icon, IconButton, Sheet, SheetItem, SolidIcon } from '../ui/components';
+import { colors, common, radius, space } from '../ui/theme';
 
 const EMPTY: ClientMessage[] = [];
+
+const PRESENCE_LABEL: Record<string, string> = { online: 'Online', idle: 'Ausente', dnd: 'Não perturbe', offline: 'Offline' };
 
 export function ChatScreen({ conversationId, nav }: { conversationId: Id; nav: Nav }) {
   const conv = useNexus((s) => s.conversations[conversationId]);
   const title = useNexus((s) => (conv ? conversationTitle(s, conv) : ''));
   const peer = useNexus((s) => (conv?.kind === 'dm' ? dmPeer(s, conv) : undefined));
+  const peerUser = useNexus((s) => (peer ? s.users[peer.id] : undefined));
   const presence = useNexus((s) => (peer ? (s.presences[peer.id] ?? 'offline') : undefined));
+  const serverName = useNexus((s) => (conv?.server_id ? s.servers[conv.server_id]?.name : undefined));
   const items = useNexus((s) => s.messages[conversationId]?.items ?? EMPTY);
   const hasMore = useNexus((s) => s.messages[conversationId]?.hasMore ?? false);
   const activeCall = useNexus((s) => callForConversation(s, conversationId));
@@ -55,7 +61,9 @@ export function ChatScreen({ conversationId, nav }: { conversationId: Id; nav: N
   const data = useMemo(() => [...items].reverse(), [items]);
   if (!conv) return null;
   const channel = isChannel(conv);
-  const canSend = !channel || hasPermission(conv.permissions, Permissions.SEND_MESSAGES);
+  const perms = conv.permissions;
+  const canSend = !channel || hasPermission(perms, Permissions.SEND_MESSAGES);
+  const canAttach = !channel || hasPermission(perms, Permissions.ATTACH_FILES);
 
   const startCall = async (video: boolean) => {
     if (activeCall) await calls.join(activeCall.id);
@@ -63,63 +71,95 @@ export function ChatScreen({ conversationId, nav }: { conversationId: Id; nav: N
     nav.push({ name: 'call' });
   };
 
+  const subtitle = peer
+    ? PRESENCE_LABEL[presence ?? 'offline']
+    : channel
+      ? conv.topic || serverName || ''
+      : `${conv.members.length} membros`;
+
   return (
     <KeyboardAvoidingView style={common.screen} behavior="height">
-      <View style={common.header}>
-        <IconButton name="reply" label="Voltar" onPress={nav.back} />
-        {peer ? <Avatar user={peer} size={32} presence={presence} /> : <Icon name={conv.kind === 'voice' ? 'volume' : 'hash'} />}
-        <Text style={common.headerTitle} numberOfLines={1}>
-          {title}
-        </Text>
-        {callsEnabled && !channel && myCallConv !== conversationId && (
+      <Header
+        title={title}
+        subtitle={subtitle}
+        onBack={nav.back}
+        left={
+          peer ? (
+            <Avatar user={peerUser ?? peer} size={36} presence={presence} ringColor={colors.bg} />
+          ) : (
+            <View style={styles.headerIcon}>
+              <Icon name={conv.kind === 'voice' ? 'volume' : channel ? 'hash' : 'users'} size={20} color={colors.text} />
+            </View>
+          )
+        }
+        right={
           <>
-            <IconButton name="phone" label="Chamada de voz" onPress={() => void startCall(false)} />
-            <IconButton name="video" label="Chamada de vídeo" onPress={() => void startCall(true)} />
+            {callsEnabled && !channel && myCallConv !== conversationId && (
+              <>
+                <IconButton name="phone" label="Chamada de voz" filled color={colors.text} onPress={() => void startCall(false)} />
+                <IconButton name="video" label="Chamada de vídeo" filled color={colors.text} onPress={() => void startCall(true)} />
+              </>
+            )}
+            {myCallConv === conversationId && (
+              <IconButton name="phone" label="Abrir chamada" filled color={colors.success} onPress={() => nav.push({ name: 'call' })} />
+            )}
           </>
-        )}
-        {myCallConv === conversationId && (
-          <IconButton name="phone" active label="Abrir chamada" onPress={() => nav.push({ name: 'call' })} />
-        )}
-      </View>
+        }
+      />
       {activeCall && activeCall.participants.length > 0 && myCallConv !== conversationId && (
         <Pressable style={styles.joinBar} onPress={() => void startCall(false)}>
-          <Text style={common.text}>Chamada em andamento · {activeCall.participants.length} · Toque para entrar</Text>
+          <Icon name="volume" size={18} color={colors.success} />
+          <Text style={[common.text, { flex: 1, fontWeight: '600' }]}>
+            Chamada em andamento · {activeCall.participants.length}
+          </Text>
+          <Text style={styles.joinText}>Entrar</Text>
         </Pressable>
       )}
-      <FlatList
-        inverted
-        data={data}
-        keyExtractor={(m) => m.id}
-        onEndReached={() => hasMore && void client().loadOlder(conversationId)}
-        onEndReachedThreshold={0.5}
-        renderItem={({ item, index }) => {
-          const older = data[index + 1];
-          const newDay = !older || !sameDay(older.created_at, item.created_at);
-          const compact =
-            !newDay && !!older && older.author_id === item.author_id && item.created_at - older.created_at < 300_000 && !item.reply_to;
-          return (
-            <View>
-              {newDay && <Text style={styles.day}>{formatDay(item.created_at)}</Text>}
-              <MessageRow message={item} compact={compact} onLongPress={() => setActionsFor(item)} />
-            </View>
-          );
-        }}
-      />
-      <Typing conversationId={conversationId} />
+      <View style={[common.panel, styles.chatPanel]}>
+        <FlatList
+          inverted
+          data={data}
+          keyExtractor={(m) => m.id}
+          onEndReached={() => hasMore && void client().loadOlder(conversationId)}
+          onEndReachedThreshold={0.5}
+          contentContainerStyle={{ paddingVertical: space.sm }}
+          ListFooterComponent={hasMore ? undefined : <ChatStart title={title} channel={channel} dm={!!peer} />}
+          renderItem={({ item, index }) => {
+            const older = data[index + 1];
+            const newDay = !older || !sameDay(older.created_at, item.created_at);
+            const compact =
+              !newDay &&
+              !!older &&
+              older.author_id === item.author_id &&
+              item.created_at - older.created_at < 300_000 &&
+              !item.reply_to;
+            return (
+              <View>
+                {newDay && <DaySeparator at={item.created_at} />}
+                <MessageRow message={item} compact={compact} onLongPress={() => setActionsFor(item)} />
+              </View>
+            );
+          }}
+        />
+        <Typing conversationId={conversationId} />
+      </View>
       {!canSend ? (
-        <Text style={[common.muted, { padding: space.md, textAlign: 'center' }]}>
-          Você não tem permissão para enviar mensagens em #{conv.name}.
-        </Text>
+        <View style={[common.panel, styles.readOnly]}>
+          <Icon name="lock" size={16} />
+          <Text style={[common.muted, { flex: 1 }]}>Você não tem permissão para enviar mensagens em #{conv.name}.</Text>
+        </View>
       ) : (
-      <Composer
-        conversationId={conversationId}
-        replyTo={replyTo}
-        editing={editing}
-        onDone={() => {
-          setReplyTo(null);
-          setEditing(null);
-        }}
-      />
+        <Composer
+          conversationId={conversationId}
+          placeholder={channel ? `Conversar em #${conv.name}` : `Mensagem para ${title}`}
+          canAttach={canAttach}
+          replyTo={replyTo}
+          editing={editing}
+          onDone={() => {
+            setReplyTo(null);
+            setEditing(null);
+          }}
+        />
       )}
       {actionsFor && (
         <Actions
@@ -130,6 +170,32 @@ export function ChatScreen({ conversationId, nav }: { conversationId: Id; nav: N
         />
       )}
     </KeyboardAvoidingView>
+  );
+}
+
+/** Top of the history (shown once everything is loaded). */
+function ChatStart({ title, channel, dm }: { title: string; channel: boolean; dm: boolean }) {
+  return (
+    <View style={styles.start}>
+      <View style={styles.startIcon}>
+        <Gradient radius={28} />
+        <Icon name={channel ? 'hash' : dm ? 'message' : 'users'} size={26} color="#fff" />
+      </View>
+      <Text style={styles.startTitle}>{channel ? `Bem-vindo a #${title}` : title}</Text>
+      <Text style={[common.muted, { textAlign: 'center' }]}>
+        {channel ? 'Este é o começo do canal.' : dm ? 'Este é o começo da conversa de vocês.' : 'Este é o começo do grupo.'}
+      </Text>
+    </View>
+  );
+}
+
+function DaySeparator({ at }: { at: number }) {
+  return (
+    <View style={styles.dayRow}>
+      <View style={styles.dayLine} />
+      <Text style={styles.day}>{formatDay(at)}</Text>
+      <View style={styles.dayLine} />
+    </View>
   );
 }
 
@@ -156,113 +222,133 @@ const MessageRow = memo(function MessageRow({
   });
   const replyAuthor = useNexus((s) => (m.reply_to ? s.users[m.reply_to.author_id]?.display_name : undefined));
   const blocked = useNexus((s) => !!s.blocked[m.author_id]);
-  if (blocked) return <Text style={[common.muted, { paddingHorizontal: space.md }]}>Mensagem de usuário bloqueado</Text>;
+  if (blocked) return <Text style={[common.faint, { paddingHorizontal: space.md, paddingVertical: 4 }]}>Mensagem de usuário bloqueado</Text>;
   return (
-    <Pressable onLongPress={onLongPress} delayLongPress={300} style={[styles.message, compact && { paddingTop: 2 }]}>
-      <View style={{ width: 38 }}>{!compact && <Avatar user={author} size={38} />}</View>
-      <View style={{ flex: 1 }}>
-        {m.reply_to && (
-          <Text style={common.muted} numberOfLines={1}>
-            ↩ {replyAuthor}: {m.reply_to.content || 'Anexo'}
+    <Pressable
+      onLongPress={onLongPress}
+      delayLongPress={280}
+      android_ripple={{ color: colors.surfaceHover }}
+      style={[styles.message, compact && { paddingTop: 1 }, m.local === 'sending' && { opacity: 0.65 }]}
+    >
+      {m.reply_to && (
+        <View style={styles.replyRow}>
+          <View style={styles.replyCurve} />
+          <Text style={styles.replyText} numberOfLines={1}>
+            <Text style={{ fontWeight: '700', color: colors.textMuted }}>{replyAuthor ?? '?'} </Text>
+            {m.reply_to.content || 'Anexo'}
           </Text>
-        )}
-        {!compact && (
-          <View style={common.row}>
-            <Text style={[styles.author, authorColor ? { color: authorColor } : null]}>{authorName}</Text>
-            <Text style={styles.time}>{formatTime(m.created_at)}</Text>
-          </View>
-        )}
-        {!!m.content && (
-          <Text style={[common.text, m.local === 'failed' && { color: colors.danger }, m.local === 'sending' && { opacity: 0.6 }]}>
-            {m.content}
-            {m.edited_at ? <Text style={styles.time}> (editada)</Text> : null}
-          </Text>
-        )}
-        {m.local === 'sending' && m.upload && (
-          <View style={styles.upload}>
-            <Text style={common.muted} numberOfLines={1}>
-              Enviando {m.upload.file} · {Math.floor((m.upload.sent / Math.max(1, m.upload.total)) * 100)}% de{' '}
-              {formatBytes(m.upload.total)}
-            </Text>
-            <View style={styles.uploadTrack}>
-              <View style={[styles.uploadFill, { width: `${(m.upload.sent / Math.max(1, m.upload.total)) * 100}%` }]} />
+        </View>
+      )}
+      <View style={styles.messageBody}>
+        <View style={{ width: 40 }}>{!compact && <Avatar user={author} size={40} />}</View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          {!compact && (
+            <View style={[common.row, { gap: 8 }]}>
+              <Text style={[styles.author, authorColor ? { color: authorColor } : null]} numberOfLines={1}>
+                {authorName}
+              </Text>
+              <Text style={styles.time}>{formatTime(m.created_at)}</Text>
             </View>
-          </View>
-        )}
-        {m.attachments.map((a) => (
-          <AttachmentView key={a.id} a={a} />
-        ))}
-        {m.reactions.length > 0 && (
-          <View style={styles.reactions}>
-            {m.reactions.map((r) => (
-              <Pressable
-                key={r.emoji}
-                onPress={() => void client().toggleReaction(m.conversation_id, m.id, r.emoji)}
-                style={[styles.reaction, myId && r.user_ids.includes(myId) ? styles.reactionMine : null]}
-              >
-                <Text style={common.text}>
-                  {r.emoji} <Text style={common.muted}>{r.user_ids.length}</Text>
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
+          )}
+          {!!m.content && (
+            <Text style={[styles.content, m.local === 'failed' && { color: colors.danger }]} selectable={false}>
+              {m.content}
+              {m.edited_at ? <Text style={styles.time}> (editada)</Text> : null}
+            </Text>
+          )}
+          {m.local === 'failed' && <Text style={common.error}>Falha ao enviar. Segure para descartar.</Text>}
+          {m.local === 'sending' && m.upload && (
+            <View style={styles.upload}>
+              <Text style={common.faint} numberOfLines={1}>
+                Enviando {m.upload.file} · {Math.floor((m.upload.sent / Math.max(1, m.upload.total)) * 100)}% de{' '}
+                {formatBytes(m.upload.total)}
+              </Text>
+              <View style={styles.track}>
+                <View style={[styles.fill, { width: `${(m.upload.sent / Math.max(1, m.upload.total)) * 100}%` }]} />
+              </View>
+            </View>
+          )}
+          {m.attachments.length > 0 && (
+            <View style={{ gap: 6, marginTop: 4 }}>
+              {m.attachments.map((a) => (
+                <AttachmentView key={a.id} a={a} conversationId={m.conversation_id} />
+              ))}
+            </View>
+          )}
+          {m.reactions.length > 0 && (
+            <View style={styles.reactions}>
+              {m.reactions.map((r) => {
+                const mine = !!myId && r.user_ids.includes(myId);
+                return (
+                  <Pressable
+                    key={r.emoji}
+                    onPress={() => void client().toggleReaction(m.conversation_id, m.id, r.emoji)}
+                    style={[styles.reaction, mine && styles.reactionMine]}
+                  >
+                    <Text style={{ fontSize: 15 }}>{r.emoji}</Text>
+                    <Text style={[styles.reactionCount, mine && { color: colors.text }]}>{r.user_ids.length}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+        </View>
       </View>
     </Pressable>
   );
 });
 
-function AttachmentView({ a }: { a: Attachment }) {
+function AttachmentView({ a, conversationId }: { a: Attachment; conversationId: Id }) {
+  const { width } = useWindowDimensions();
   const url = client().api.url(a.url) ?? '';
-  if (a.content_type.startsWith('image/')) {
+  const max = Math.min(width - 96, 320);
+  const kind = mediaKind(a);
+  if (kind === 'image') {
     const w = a.width ?? 320;
     const h = a.height ?? 240;
-    const scale = Math.min(1, 260 / w, 260 / h);
+    const scale = Math.min(1, max / w, 320 / h);
     return (
-      <Pressable onPress={() => void Linking.openURL(url)}>
-        <Image source={{ uri: url }} style={{ width: w * scale, height: h * scale, borderRadius: 10, marginTop: 4 }} />
+      <Pressable onPress={() => openImage(conversationId, a.id)} style={({ pressed }) => pressed && { opacity: 0.85 }}>
+        <Image source={{ uri: url }} style={[styles.image, { width: Math.max(80, w * scale), height: Math.max(60, h * scale) }]} />
       </Pressable>
     );
   }
-  const kind = mediaKind(a);
   if (kind === 'voice' || kind === 'audio') return <AudioRow a={a} url={url} voice={kind === 'voice'} />;
   if (kind === 'video') {
-    // Opens in the phone's video player (inline playback would need a native video view).
+    const ratio = a.width && a.height ? a.width / a.height : 16 / 9;
+    const w = max;
+    const h = Math.min(260, Math.max(140, w / ratio));
     return (
-      <Pressable style={styles.video} onPress={() => void Linking.openURL(url)}>
+      <Pressable onPress={() => openVideo(a)} style={({ pressed }) => [styles.video, { width: w, height: h }, pressed && { opacity: 0.9 }]}>
+        <Gradient from="#141833" to="#05060c" radius={radius.md} />
         <View style={styles.videoPlay}>
-          <View style={styles.playGlyph} />
+          <Gradient radius={30} />
+          <SolidIcon name="play" size={26} color="#fff" />
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={common.text} numberOfLines={1}>
+        <View style={styles.videoInfo}>
+          <Icon name="video" size={14} color="rgba(255,255,255,0.8)" />
+          <Text style={styles.videoName} numberOfLines={1}>
             {a.file_name}
           </Text>
-          <Text style={common.muted}>Vídeo · {formatBytes(a.size)} · toque para assistir</Text>
+          <Text style={styles.videoSize}>{formatBytes(a.size)}</Text>
         </View>
       </Pressable>
     );
   }
   return (
-    <Pressable style={styles.file} onPress={() => void Linking.openURL(url)}>
-      <Icon name="file" />
+    <Pressable style={({ pressed }) => [styles.file, { maxWidth: max }, pressed && { opacity: 0.85 }]} onPress={() => void Linking.openURL(url)}>
+      <View style={styles.fileIcon}>
+        <Icon name="file" size={22} color={colors.accent} />
+      </View>
       <View style={{ flex: 1 }}>
-        <Text style={{ color: colors.accent }} numberOfLines={1}>
+        <Text style={styles.fileName} numberOfLines={1}>
           {a.file_name}
         </Text>
-        <Text style={common.muted}>{formatBytes(a.size)}</Text>
+        <Text style={common.faint}>{formatBytes(a.size)}</Text>
       </View>
+      <Icon name="external" size={18} />
     </Pressable>
   );
-}
-
-const VOICE_PREFIX = 'mensagem-de-voz';
-const VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska']);
-
-function mediaKind(a: Attachment): 'voice' | 'audio' | 'video' | null {
-  if (a.file_name.startsWith(VOICE_PREFIX)) return 'voice';
-  if (VIDEO_TYPES.has(a.content_type)) return 'video';
-  if (a.content_type.startsWith('audio/')) return 'audio';
-  return null;
 }
 
 function fmtMs(ms: number): string {
@@ -282,28 +368,29 @@ function AudioRow({ a, url, voice }: { a: Attachment; url: string; voice: boolea
   return (
     <View style={[styles.audio, voice && styles.voice]}>
       <Pressable style={styles.audioPlay} onPress={() => toggleAudio(a.id, url)} accessibilityLabel={playing ? 'Pausar' : 'Tocar'}>
+        <Gradient radius={20} />
         {state === 'loading' ? (
-          <ActivityIndicator color={colors.accentText} size="small" />
-        ) : playing ? (
-          <View style={styles.pauseGlyph} />
+          <ActivityIndicator color="#fff" size="small" />
         ) : (
-          <View style={styles.playGlyph} />
+          <SolidIcon name={playing ? 'pause' : 'play'} size={18} color="#fff" />
         )}
       </Pressable>
-      <View style={{ flex: 1, gap: 4 }}>
-        <Text style={[common.text, { fontWeight: '600' }]} numberOfLines={1}>
+      <View style={{ flex: 1, gap: 6 }}>
+        <Text style={[common.text, { fontWeight: '600', fontSize: 14 }]} numberOfLines={1}>
           {voice ? 'Mensagem de voz' : a.file_name}
         </Text>
         <Pressable
           onLayout={(e) => setWidth(e.nativeEvent.layout.width || 1)}
           onPress={(e) => mine && duration && seekAudio(a.id, (e.nativeEvent.locationX / width) * duration)}
-          hitSlop={8}
-          style={styles.audioTrack}
+          hitSlop={10}
+          style={styles.track}
         >
-          <View style={[styles.audioFill, { width: `${pct * 100}%` }]} />
+          <View style={[styles.fill, { width: `${pct * 100}%` }]} />
         </Pressable>
-        <Text style={common.muted}>
-          {state === 'error' ? 'Não foi possível tocar' : `${fmtMs(position)}${duration ? ` / ${fmtMs(Math.round(duration / 1000) * 1000)}` : ''}`}
+        <Text style={common.faint}>
+          {state === 'error'
+            ? 'Não foi possível tocar'
+            : `${fmtMs(position)}${duration ? ` / ${fmtMs(Math.round(duration / 1000) * 1000)}` : ''}`}
           {!voice ? ` · ${formatBytes(a.size)}` : ''}
         </Text>
       </View>
@@ -317,16 +404,24 @@ function Typing({ conversationId }: { conversationId: Id }) {
       .map((id) => s.users[id]?.display_name ?? 'Alguém')
       .join(', '),
   );
-  return <Text style={styles.typing}>{names ? `${names} digitando…` : ' '}</Text>;
+  return (
+    <Text style={styles.typing} numberOfLines={1}>
+      {names ? `${names} está digitando…` : ' '}
+    </Text>
+  );
 }
 
 function Composer({
   conversationId,
+  placeholder,
+  canAttach,
   replyTo,
   editing,
   onDone,
 }: {
   conversationId: Id;
+  placeholder: string;
+  canAttach: boolean;
   replyTo: ClientMessage | null;
   editing: ClientMessage | null;
   onDone: () => void;
@@ -336,6 +431,7 @@ function Composer({
   const [error, setError] = useState<string | null>(null);
   const [lastEditing, setLastEditing] = useState<string | null>(null);
   const [recording, setRecording] = useState<number | null>(null);
+  const replyName = useNexus((s) => (replyTo ? (s.users[replyTo.author_id]?.display_name ?? '') : ''));
   if (editing && editing.id !== lastEditing) {
     setLastEditing(editing.id);
     setText(editing.content);
@@ -382,9 +478,9 @@ function Composer({
     }
   }
 
-  async function finishVoice(send: boolean) {
+  async function finishVoice(sendIt: boolean) {
     setRecording(null);
-    if (!send) {
+    if (!sendIt) {
       NexusNative.voiceCancel();
       return;
     }
@@ -415,24 +511,27 @@ function Composer({
 
   if (recording !== null) {
     return (
-      <View style={[styles.composer, common.row, { gap: space.md, paddingHorizontal: space.sm }]}>
-        <IconButton name="trash" label="Cancelar gravação" danger onPress={() => void finishVoice(false)} />
+      <View style={[styles.composer, styles.recording]}>
+        <IconButton name="trash" label="Cancelar gravação" danger filled onPress={() => void finishVoice(false)} />
         <View style={styles.recDot} />
-        <Text style={[common.text, { fontWeight: '700' }]}>{fmtMs(Date.now() - recording)}</Text>
+        <Text style={[common.text, { fontWeight: '800', fontVariant: ['tabular-nums'] }]}>{fmtMs(Date.now() - recording)}</Text>
         <Text style={[common.muted, { flex: 1 }]}>Gravando…</Text>
-        <Pressable style={[common.button, { paddingHorizontal: space.lg }]} onPress={() => void finishVoice(true)}>
-          <Text style={common.buttonText}>Enviar</Text>
+        <Pressable style={styles.sendButton} onPress={() => void finishVoice(true)} accessibilityLabel="Enviar mensagem de voz">
+          <Gradient radius={21} />
+          <Icon name="send" size={20} color="#fff" />
         </Pressable>
       </View>
     );
   }
 
+  const canSendNow = !!text.trim() || files.length > 0 || !!editing;
   return (
-    <View style={styles.composer}>
+    <View style={styles.composerWrap}>
       {(replyTo || editing) && (
-        <View style={[common.row, { gap: space.sm, paddingHorizontal: space.sm }]}>
+        <View style={styles.contextBar}>
+          <Icon name={editing ? 'edit' : 'reply'} size={14} color={colors.accent} />
           <Text style={[common.muted, { flex: 1 }]} numberOfLines={1}>
-            {editing ? 'Editando mensagem' : `Respondendo: ${replyTo?.content || 'Anexo'}`}
+            {editing ? 'Editando mensagem' : `Respondendo a ${replyName}: ${replyTo?.content || 'Anexo'}`}
           </Text>
           <IconButton
             name="x"
@@ -447,22 +546,43 @@ function Composer({
         </View>
       )}
       {files.length > 0 && (
-        <Text style={[common.muted, { paddingHorizontal: space.sm }]}>
-          {files.map((f) => `${f.name} (${formatBytes(f.size)})`).join(', ')}
-        </Text>
+        <View style={styles.chips}>
+          {files.map((f, i) => (
+            <View key={`${f.uri}${i}`} style={styles.chip}>
+              {f.type.startsWith('image/') ? (
+                <Image source={{ uri: f.uri }} style={styles.chipThumb} />
+              ) : (
+                <Icon name={f.type.startsWith('video/') ? 'video' : 'file'} size={18} color={colors.accent} />
+              )}
+              <View style={{ maxWidth: 140 }}>
+                <Text style={[common.text, { fontSize: 13 }]} numberOfLines={1}>
+                  {f.name}
+                </Text>
+                <Text style={common.faint}>{formatBytes(f.size)}</Text>
+              </View>
+              <Pressable hitSlop={8} onPress={() => setFiles((prev) => prev.filter((_, j) => j !== i))} accessibilityLabel="Remover">
+                <Icon name="x" size={16} />
+              </Pressable>
+            </View>
+          ))}
+        </View>
       )}
-      {error && <Text style={[common.error, { paddingHorizontal: space.sm }]}>{error}</Text>}
-      <View style={common.row}>
-        <IconButton
-          name="paperclip"
-          label="Anexar"
-          onPress={() => void NexusNative.pickFiles().then((f) => setFiles((prev) => [...prev, ...f].slice(0, 10)))}
-        />
+      {error && <Text style={[common.error, { paddingHorizontal: space.md }]}>{error}</Text>}
+      <View style={styles.composer}>
+        {canAttach && !editing && (
+          <Pressable
+            style={styles.attachButton}
+            accessibilityLabel="Anexar"
+            onPress={() => void NexusNative.pickFiles().then((f) => setFiles((prev) => [...prev, ...f].slice(0, 10)))}
+          >
+            <Icon name="plus" size={22} color={colors.text} />
+          </Pressable>
+        )}
         <TextInput
           style={styles.input}
           multiline
           value={text}
-          placeholder="Escreva uma mensagem"
+          placeholder={placeholder}
           placeholderTextColor={colors.textFaint}
           onChangeText={(t) => {
             setText(t);
@@ -470,11 +590,16 @@ function Composer({
           }}
           maxLength={4000}
         />
-        {!text.trim() && files.length === 0 && !editing ? (
-          <IconButton name="mic" label="Gravar mensagem de voz" onPress={() => void startVoice()} />
-        ) : (
-          <IconButton name="send" active label="Enviar" onPress={() => void send()} />
-        )}
+        {canSendNow ? (
+          <Pressable style={styles.sendButton} onPress={() => void send()} accessibilityLabel={editing ? 'Salvar' : 'Enviar'}>
+            <Gradient radius={21} />
+            <Icon name={editing ? 'check' : 'send'} size={20} color="#fff" />
+          </Pressable>
+        ) : canAttach ? (
+          <Pressable style={styles.micButton} onPress={() => void startVoice()} accessibilityLabel="Gravar mensagem de voz">
+            <Icon name="mic" size={22} color={colors.text} />
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -492,145 +617,237 @@ function Actions({
   onEdit: () => void;
 }) {
   const myId = useNexus((s) => s.me?.id);
-  const isOwner = useNexus((s) => s.conversations[message.conversation_id]?.owner_id === s.me?.id);
+  const conv = useNexus((s) => s.conversations[message.conversation_id]);
   const mine = message.author_id === myId;
+  const channel = !!conv && isChannel(conv);
+  const canReact = !channel || hasPermission(conv?.permissions, Permissions.ADD_REACTIONS);
+  const canDelete =
+    mine || conv?.owner_id === myId || (channel && hasPermission(conv?.permissions, Permissions.MANAGE_MESSAGES));
   const act = (fn: () => void) => () => {
     onClose();
     fn();
   };
   return (
-    <Modal transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.sheetBackdrop} onPress={onClose}>
-        <View style={styles.sheet}>
-          <View style={[common.row, { justifyContent: 'space-around' }]}>
-            {QUICK_REACTIONS.map((e) => (
-              <Pressable key={e} onPress={act(() => void client().toggleReaction(message.conversation_id, message.id, e))}>
-                <Text style={{ fontSize: 26 }}>{e}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <SheetItem label="Responder" onPress={act(onReply)} />
-          {mine && <SheetItem label="Editar" onPress={act(onEdit)} />}
-          {(mine || isOwner) && (
-            <SheetItem
-              label="Apagar"
-              danger
-              onPress={act(() => void client().deleteMessage(message.conversation_id, message.id))}
-            />
-          )}
-          {message.local === 'failed' && (
-            <SheetItem label="Descartar" onPress={act(() => client().discardFailed(message.conversation_id, message.id))} />
-          )}
+    <Sheet onClose={onClose}>
+      {canReact && !message.local && (
+        <View style={styles.reactRow}>
+          {QUICK_REACTIONS.map((e) => (
+            <Pressable
+              key={e}
+              style={({ pressed }) => [styles.reactButton, pressed && { transform: [{ scale: 1.15 }] }]}
+              onPress={act(() => void client().toggleReaction(message.conversation_id, message.id, e))}
+            >
+              <Text style={{ fontSize: 24 }}>{e}</Text>
+            </Pressable>
+          ))}
         </View>
-      </Pressable>
-    </Modal>
-  );
-}
-
-function SheetItem({ label, onPress, danger }: { label: string; onPress: () => void; danger?: boolean }) {
-  return (
-    <Pressable style={styles.sheetItem} onPress={onPress}>
-      <Text style={[common.text, danger && { color: colors.danger }]}>{label}</Text>
-    </Pressable>
+      )}
+      {!message.local && <SheetItem icon="reply" label="Responder" onPress={act(onReply)} />}
+      {mine && !message.local && !!message.content && <SheetItem icon="edit" label="Editar mensagem" onPress={act(onEdit)} />}
+      {!!message.content && (
+        <SheetItem icon="copy" label="Copiar texto" onPress={act(() => NexusNative.copyText(message.content))} />
+      )}
+      {message.local === 'failed' && (
+        <SheetItem icon="x" label="Descartar" onPress={act(() => client().discardFailed(message.conversation_id, message.id))} />
+      )}
+      {canDelete && !message.local && (
+        <SheetItem
+          icon="trash"
+          label="Apagar mensagem"
+          danger
+          onPress={act(() =>
+            Alert.alert('Apagar mensagem?', 'Isso não pode ser desfeito.', [
+              { text: 'Cancelar', style: 'cancel' },
+              {
+                text: 'Apagar',
+                style: 'destructive',
+                onPress: () => void client().deleteMessage(message.conversation_id, message.id),
+              },
+            ]),
+          )}
+        />
+      )}
+    </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
+  headerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.surfaceRaised,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chatPanel: { flex: 1, marginHorizontal: space.sm },
+  joinBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginHorizontal: space.sm,
+    marginBottom: space.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(47,210,122,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(47,210,122,0.35)',
+  },
+  joinText: { color: colors.success, fontWeight: '800' },
+  start: { alignItems: 'center', gap: space.sm, paddingVertical: space.xl, paddingHorizontal: space.lg },
+  startIcon: { width: 56, height: 56, borderRadius: 28, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  startTitle: { color: colors.text, fontSize: 20, fontWeight: '800', textAlign: 'center' },
+  dayRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, marginVertical: space.md },
+  dayLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
+  day: { color: colors.textFaint, fontSize: 12, fontWeight: '700' },
+  message: { paddingHorizontal: space.md, paddingTop: space.sm, paddingBottom: 2 },
+  messageBody: { flexDirection: 'row', gap: space.md },
+  replyRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 18, marginBottom: 2 },
+  replyCurve: {
+    width: 22,
+    height: 10,
+    marginTop: 8,
+    borderTopLeftRadius: 6,
+    borderLeftWidth: 2,
+    borderTopWidth: 2,
+    borderColor: colors.border,
+  },
+  replyText: { flex: 1, color: colors.textFaint, fontSize: 13 },
+  author: { color: colors.text, fontWeight: '700', fontSize: 15, flexShrink: 1 },
+  time: { color: colors.textFaint, fontSize: 11 },
+  content: { color: colors.text, fontSize: 15, lineHeight: 21 },
+  image: { borderRadius: radius.md, backgroundColor: colors.surfaceRaised },
+  video: { borderRadius: radius.md, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  videoPlay: { width: 60, height: 60, borderRadius: 30, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', paddingLeft: 3, elevation: 4 },
+  videoInfo: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: space.md,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  videoName: { color: '#fff', fontSize: 13, fontWeight: '600', flex: 1 },
+  videoSize: { color: 'rgba(255,255,255,0.7)', fontSize: 12 },
   audio: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.md,
-    marginTop: 4,
     padding: space.sm,
-    borderRadius: 12,
+    paddingRight: space.md,
+    borderRadius: radius.md,
     backgroundColor: colors.surfaceRaised,
     borderWidth: 1,
     borderColor: colors.border,
     maxWidth: 320,
   },
-  voice: { borderRadius: 24 },
-  audioPlay: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  playGlyph: {
-    width: 0,
-    height: 0,
-    marginLeft: 3,
-    borderLeftWidth: 12,
-    borderTopWidth: 8,
-    borderBottomWidth: 8,
-    borderLeftColor: colors.accentText,
-    borderTopColor: 'transparent',
-    borderBottomColor: 'transparent',
-  },
-  pauseGlyph: { width: 12, height: 14, borderLeftWidth: 4, borderRightWidth: 4, borderColor: colors.accentText },
-  audioTrack: { height: 4, borderRadius: 2, backgroundColor: colors.surfaceHover, overflow: 'hidden' },
-  audioFill: { height: '100%', backgroundColor: colors.accent },
-  video: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-    marginTop: 4,
-    padding: space.sm,
-    borderRadius: 12,
-    backgroundColor: '#000',
-    borderWidth: 1,
-    borderColor: colors.border,
-    maxWidth: 320,
-  },
-  videoPlay: {
-    width: 56,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.danger },
-  upload: { marginTop: 6, gap: 4 },
-  uploadTrack: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceHover, overflow: 'hidden' },
-  uploadFill: { height: '100%', backgroundColor: colors.accent },
-  joinBar: { backgroundColor: 'rgba(63,185,80,0.18)', padding: space.sm, alignItems: 'center' },
-  day: { color: colors.textFaint, textAlign: 'center', fontSize: 12, marginVertical: space.sm },
-  message: { flexDirection: 'row', gap: space.sm, paddingHorizontal: space.md, paddingTop: space.sm },
-  author: { color: colors.text, fontWeight: '700', marginRight: 6 },
-  time: { color: colors.textFaint, fontSize: 11 },
-  reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
-  reaction: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    backgroundColor: colors.surfaceRaised,
-  },
-  reactionMine: { borderColor: colors.accent },
+  voice: { borderRadius: 26 },
+  audioPlay: { width: 40, height: 40, borderRadius: 20, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  track: { height: 5, borderRadius: 3, backgroundColor: colors.surfaceHover, overflow: 'hidden' },
+  fill: { height: '100%', backgroundColor: colors.accent },
   file: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
+    gap: space.md,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 10,
-    padding: space.sm,
-    marginTop: 4,
-  },
-  typing: { color: colors.textMuted, fontSize: 12, paddingHorizontal: space.md, height: 18 },
-  composer: {
-    margin: space.sm,
     backgroundColor: colors.surfaceRaised,
-    borderRadius: 12,
+    borderRadius: radius.md,
+    padding: space.sm,
+    paddingRight: space.md,
+  },
+  fileIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: 'rgba(84,104,245,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fileName: { color: colors.text, fontWeight: '600', fontSize: 14 },
+  upload: { marginTop: 6, gap: 4 },
+  reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  reaction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingVertical: 2,
+    borderRadius: radius.round,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    backgroundColor: colors.surfaceRaised,
   },
-  input: { flex: 1, color: colors.text, fontSize: 15, maxHeight: 120, paddingVertical: 8 },
-  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: colors.surface, padding: space.lg, gap: space.sm, borderTopLeftRadius: 16, borderTopRightRadius: 16 },
-  sheetItem: { paddingVertical: 12 },
+  reactionMine: { borderColor: colors.accent, backgroundColor: 'rgba(84,104,245,0.18)' },
+  reactionCount: { color: colors.textMuted, fontWeight: '700', fontSize: 13 },
+  typing: { color: colors.textMuted, fontSize: 12, paddingHorizontal: space.md, paddingBottom: 4, height: 20 },
+  readOnly: { flexDirection: 'row', alignItems: 'center', gap: space.sm, margin: space.sm, padding: space.md },
+  composerWrap: { paddingHorizontal: space.sm, paddingTop: space.sm, paddingBottom: space.sm, gap: 6 },
+  contextBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingLeft: space.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    padding: 6,
+    paddingRight: 10,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  chipThumb: { width: 36, height: 36, borderRadius: 8 },
+  composer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 6,
+    padding: 5,
+    borderRadius: 26,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  recording: { alignItems: 'center', marginHorizontal: space.sm, marginBottom: space.sm, gap: space.md, paddingLeft: space.xs },
+  attachButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.surfaceRaised,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  micButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  sendButton: { width: 42, height: 42, borderRadius: 21, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  input: { flex: 1, color: colors.text, fontSize: 15, maxHeight: 130, paddingVertical: 10, paddingHorizontal: 6 },
+  recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.danger },
+  reactRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingBottom: space.md,
+    marginBottom: space.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  reactButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceRaised,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

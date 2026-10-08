@@ -1,10 +1,10 @@
 import { conversationTitle } from '@nexus/shared';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { calls, useCall } from '../call/callManager';
 import { useNexus } from '../lib/nexus';
 import { startLoop, stopLoop } from '../lib/sounds';
-import { IconButton } from '../ui/components';
+import { Gradient, Icon } from '../ui/components';
 import { colors, radius, space } from '../ui/theme';
 
 /**
@@ -42,27 +42,35 @@ export function IncomingCall({ onAnswer }: { onAnswer: () => void }) {
   if (!show || !ringing) return null;
   return (
     <View style={styles.banner} accessibilityRole="alert">
+      <View style={styles.icon}>
+        <Gradient radius={22} />
+        <Icon name="phone" size={20} color="#fff" />
+      </View>
       <View style={{ flex: 1 }}>
-        <Text style={styles.title}>{caller ?? 'Alguém'} está chamando</Text>
+        <Text style={styles.title} numberOfLines={1}>
+          {caller ?? 'Alguém'} está chamando
+        </Text>
         <Text style={styles.sub} numberOfLines={1}>
           {title}
         </Text>
       </View>
-      <IconButton
-        name="phone"
-        label="Atender"
-        color={colors.success}
+      <Pressable
+        style={[styles.action, { backgroundColor: colors.danger }]}
+        accessibilityLabel="Recusar"
+        onPress={() => setDismissed((d) => new Set(d).add(ringing.id))}
+      >
+        <Icon name="phoneOff" size={20} color="#fff" />
+      </Pressable>
+      <Pressable
+        style={[styles.action, { backgroundColor: colors.success }]}
+        accessibilityLabel="Atender"
         onPress={() => {
           void calls.join(ringing.id);
           onAnswer();
         }}
-      />
-      <IconButton
-        name="phoneOff"
-        label="Recusar"
-        danger
-        onPress={() => setDismissed((d) => new Set(d).add(ringing.id))}
-      />
+      >
+        <Icon name="phone" size={20} color="#fff" />
+      </Pressable>
     </View>
   );
 }
@@ -71,14 +79,17 @@ const styles = StyleSheet.create({
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
+    gap: space.md,
     margin: space.sm,
     padding: space.md,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     backgroundColor: colors.surfaceRaised,
     borderWidth: 1,
-    borderColor: colors.accent,
+    borderColor: 'rgba(84,104,245,0.55)',
+    elevation: 8,
   },
+  icon: { width: 44, height: 44, borderRadius: 22, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  action: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   title: { color: colors.text, fontWeight: '700', fontSize: 15 },
   sub: { color: colors.textMuted, fontSize: 13 },
 });

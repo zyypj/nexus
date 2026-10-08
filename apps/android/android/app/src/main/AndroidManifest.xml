@@ -47,6 +47,11 @@
           android:name="android.support.FILE_PROVIDER_PATHS"
           android:resource="@xml/nexus_file_paths" />
       </provider>
+      <activity
+        android:name=".VideoPlayerActivity"
+        android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
+        android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+        android:exported="false" />
       <service
         android:name=".NexusCallService"
         android:exported="false"

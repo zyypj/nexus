@@ -2,7 +2,8 @@ import { ApiError, ServerUnreachableError, resolveServerUrl, serverUrlCandidates
 import React, { useEffect, useState } from 'react';
 import { Image, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { createClient, saveServerUrl, savedServerUrl, useSession } from '../lib/nexus';
-import { colors, common, space } from '../ui/theme';
+import { Button } from '../ui/components';
+import { colors, common, radius, space } from '../ui/theme';
 
 export function LoginScreen() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -47,16 +48,20 @@ export function LoginScreen() {
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Image source={require('../assets/logo.png')} style={styles.logo} resizeMode="contain" />
         <Text style={styles.brand}>Nexus</Text>
+        <Text style={[common.muted, { textAlign: 'center', marginBottom: space.md }]}>
+          {mode === 'login' ? 'Que bom te ver de novo!' : 'Crie sua conta com o convite que te mandaram.'}
+        </Text>
+        <View style={[common.panel, styles.card]}>
         <View style={styles.tabs}>
           {(['login', 'register'] as const).map((m) => (
             <Pressable key={m} onPress={() => setMode(m)} style={[styles.tab, mode === m && styles.tabActive]}>
-              <Text style={[common.text, mode !== m && { color: colors.textMuted }]}>
+              <Text style={[common.text, { fontWeight: '600' }, mode !== m && { color: colors.textMuted }]}>
                 {m === 'login' ? 'Entrar' : 'Criar conta'}
               </Text>
             </Pressable>
           ))}
         </View>
-        <Field label="Servidor" value={server} onChangeText={setServer} placeholder="https://nexus.exemplo.com" url />
+        <Field label="Servidor" value={server} onChangeText={setServer} placeholder="ex.: 151.244.40.191:30001" url />
         <Field label="Usuário" value={username} onChangeText={setUsername} />
         {mode === 'register' && <Field label="Nome de exibição" value={displayName} onChangeText={setDisplayName} />}
         <Field label="Senha" value={password} onChangeText={setPassword} secure />
@@ -69,9 +74,8 @@ export function LoginScreen() {
           />
         )}
         {error && <Text style={common.error}>{error}</Text>}
-        <Pressable style={[common.button, busy && { opacity: 0.6 }]} onPress={() => void submit()} disabled={busy}>
-          <Text style={common.buttonText}>{busy ? 'Aguarde…' : mode === 'login' ? 'Entrar' : 'Criar conta'}</Text>
-        </Pressable>
+        <Button label={mode === 'login' ? 'Entrar' : 'Criar conta'} busy={busy} onPress={() => void submit()} />
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -104,10 +108,11 @@ function Field(props: {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: space.xl, gap: space.md, flexGrow: 1, justifyContent: 'center' },
+  container: { padding: space.lg, gap: space.xs, flexGrow: 1, justifyContent: 'center' },
   logo: { width: 84, height: 72, alignSelf: 'center', marginBottom: space.sm },
-  brand: { color: colors.text, fontSize: 30, fontWeight: '700', marginBottom: space.md },
-  tabs: { flexDirection: 'row', gap: space.sm },
-  tab: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 },
+  brand: { color: colors.text, fontSize: 30, fontWeight: '800', textAlign: 'center' },
+  card: { padding: space.lg, gap: space.md },
+  tabs: { flexDirection: 'row', backgroundColor: colors.bg, borderRadius: radius.md, padding: 4 },
+  tab: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: radius.sm },
   tabActive: { backgroundColor: colors.surfaceRaised },
 });

@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-08 (versão 0.2.4).
+Última atualização: 2026-10-08 (versão 0.2.5).
 
 ## Fase atual
 
@@ -89,6 +89,26 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
+
+## 0.2.5 — Android: visualizador de mídia e visual novo
+
+- **Imagens:** visualizador em tela cheia (`src/media/ImageViewer.tsx`): pinça e toque duplo para
+  zoom, arrastar quando ampliada, deslizar para os lados pelas imagens da conversa, arrastar para
+  baixo para fechar, compartilhar / abrir no navegador.
+- **Vídeos:** player nativo em tela cheia (`VideoPlayerActivity.kt`, VideoView/MediaPlayer, sem
+  biblioteca extra): barra de progresso com buffer, pausa, toque mostra/esconde controles,
+  rotação sem reiniciar, "abrir em outro app". O servidor responde Range, então dá para pular.
+- **Visual igual ao do computador:** barra de servidores à esquerda (Início, servidores, +) com o
+  indicador lateral, painel flutuante com DMs ou os canais do servidor (categorias recolhíveis,
+  quem está na voz), barra da chamada e barra do usuário embaixo. Amigos virou uma tela (Online /
+  Todos / Pendentes). Chat com cabeçalho novo, separador de dias, respostas, reações em pílula,
+  cartões de vídeo/arquivo/áudio, composer flutuante com prévia dos anexos, menu de ações com
+  ícones (responder, editar, copiar, apagar). Chamada, configurações e login redesenhados.
+  Tema escuro também na janela nativa (sem flash branco ao abrir).
+- Testes de renderização de todas as telas (`__tests__/screens.test.tsx`) com estado realista —
+  acharam dois `throw` síncronos de módulo nativo (agora as funções com Promise são `async`).
+- ⚠️ Sem emulador nesta máquina (a Plataforma do Hipervisor do Windows está desligada): visual e
+  gestos ainda não vistos num aparelho.
 
 ## 0.2.4 — Android conecta em servidor http://
 

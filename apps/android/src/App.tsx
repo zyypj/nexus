@@ -3,15 +3,17 @@ import React, { useEffect, useState } from 'react';
 import { AppState, BackHandler, PermissionsAndroid, Platform, StatusBar, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { calls, useCall } from './call/callManager';
+import { loadHomeUi } from './lib/homeUi';
 import { createClient, savedServerUrl, useNexus, useSession } from './lib/nexus';
 import { loadSoundPrefs } from './lib/sounds';
 import { checkForUpdate, startUpdateChecks, startupCheck, useUpdate } from './lib/updater';
+import { ImageViewer } from './media/ImageViewer';
 import { CallScreen } from './screens/CallScreen';
 import { ChatScreen } from './screens/ChatScreen';
+import { FriendsScreen } from './screens/FriendsScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { IncomingCall } from './screens/IncomingCall';
 import { LoginScreen } from './screens/LoginScreen';
-import { ServerScreen } from './screens/ServerScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { UpdateRequired } from './screens/UpdateRequired';
 import { colors } from './ui/theme';
@@ -21,11 +23,13 @@ export type Route =
   | { name: 'chat'; id: Id }
   | { name: 'call' }
   | { name: 'settings' }
-  | { name: 'server'; id: Id };
+  | { name: 'friends' };
 
 export interface Nav {
   push: (r: Route) => void;
   back: () => void;
+  /** Back to the home screen (rail + panel). */
+  home: () => void;
 }
 
 export default function App() {
@@ -45,6 +49,7 @@ export default function App() {
 
   useEffect(() => {
     void loadSoundPrefs();
+    void loadHomeUi();
     void (async () => {
       const url = await savedServerUrl();
       if (!url) {
@@ -83,6 +88,7 @@ function Main() {
   const nav: Nav = {
     push: (r) => setStack((s) => [...s, r]),
     back: () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)),
+    home: () => setStack([{ name: 'home' }]),
   };
   const route = stack[stack.length - 1] ?? { name: 'home' };
 
@@ -116,6 +122,7 @@ function Main() {
     <View style={{ flex: 1 }}>
       <IncomingCall onAnswer={() => nav.push({ name: 'call' })} />
       <View style={{ flex: 1 }}>{screen(route, nav)}</View>
+      <ImageViewer />
     </View>
   );
 }
@@ -128,8 +135,8 @@ function screen(route: Route, nav: Nav) {
       return <CallScreen nav={nav} />;
     case 'settings':
       return <SettingsScreen nav={nav} />;
-    case 'server':
-      return <ServerScreen key={route.id} serverId={route.id} nav={nav} />;
+    case 'friends':
+      return <FriendsScreen nav={nav} />;
     default:
       return <HomeScreen nav={nav} />;
   }

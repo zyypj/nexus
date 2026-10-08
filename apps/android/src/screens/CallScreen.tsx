@@ -1,19 +1,22 @@
 import { VideoTrack } from '@livekit/react-native';
 import { conversationTitle } from '@nexus/shared';
+import type { IconName } from '@nexus/ui';
 import { Track } from 'livekit-client';
 import React, { useState } from 'react';
-import { FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Nav } from '../App';
 import { type ParticipantView, calls, useCall } from '../call/callManager';
 import { useNexus } from '../lib/nexus';
-import { Avatar, Icon, IconButton } from '../ui/components';
-import { colors, common, space } from '../ui/theme';
+import { Avatar, Button, Header, Icon, Sheet, SheetItem } from '../ui/components';
+import { colors, common, radius, space } from '../ui/theme';
 
 export function CallScreen({ nav }: { nav: Nav }) {
   const s = useCall();
   const title = useNexus((st) => {
     const c = s.conversationId ? st.conversations[s.conversationId] : undefined;
-    return c ? conversationTitle(st, c) : '';
+    if (!c) return '';
+    const server = c.server_id ? st.servers[c.server_id] : undefined;
+    return server ? `${c.name} · ${server.name}` : conversationTitle(st, c);
   });
   const [shareMenu, setShareMenu] = useState(false);
   const [volumeFor, setVolumeFor] = useState<ParticipantView | null>(null);
@@ -21,44 +24,44 @@ export function CallScreen({ nav }: { nav: Nav }) {
 
   if (s.status === 'idle') {
     return (
-      <View style={[common.screen, { alignItems: 'center', justifyContent: 'center', gap: space.md }]}>
-        <Text style={common.text}>Chamada encerrada</Text>
-        {s.error && <Text style={common.error}>{s.error}</Text>}
-        <Pressable style={common.buttonSecondary} onPress={nav.back}>
-          <Text style={common.text}>Voltar</Text>
-        </Pressable>
+      <View style={[common.screen, styles.ended]}>
+        <View style={styles.endedIcon}>
+          <Icon name="phoneOff" size={30} color={colors.textMuted} />
+        </View>
+        <Text style={[common.headerTitle, { flex: 0 }]}>Chamada encerrada</Text>
+        {s.error && <Text style={[common.error, { textAlign: 'center' }]}>{s.error}</Text>}
+        <Button label="Voltar" variant="secondary" onPress={nav.back} />
       </View>
     );
   }
 
+  const statusText = s.status === 'connected' ? 'Conectado' : s.status === 'connecting' ? 'Conectando…' : 'Reconectando…';
   return (
-    <View style={[common.screen, { backgroundColor: '#070a0e' }]}>
-      <View style={common.header}>
-        <IconButton name="reply" label="Voltar" onPress={nav.back} />
-        <View style={{ flex: 1 }}>
-          <Text style={common.headerTitle} numberOfLines={1}>
-            {title}
-          </Text>
-          <Text style={{ color: s.status === 'connected' ? colors.success : colors.highlight, fontSize: 12 }}>
-            {s.status === 'connected' ? 'Conectado' : s.status === 'connecting' ? 'Conectando…' : 'Reconectando…'}
-          </Text>
-        </View>
-      </View>
+    <View style={[common.screen, { backgroundColor: '#06070d' }]}>
+      <Header
+        title={title}
+        onBack={nav.back}
+        subtitle={
+          <View style={[common.row, { gap: 6 }]}>
+            <View style={[styles.statusDot, { backgroundColor: s.status === 'connected' ? colors.success : colors.idle }]} />
+            <Text style={[common.faint, { color: s.status === 'connected' ? colors.success : colors.idle }]}>
+              {statusText} · {s.participants.length} {s.participants.length === 1 ? 'pessoa' : 'pessoas'}
+            </Text>
+          </View>
+        }
+      />
       {s.error && (
-        <Pressable onPress={() => useCall.setState({ error: null })}>
-          <Text style={[common.error, { padding: space.sm }]}>{s.error}</Text>
+        <Pressable style={styles.notice} onPress={() => useCall.setState({ error: null })}>
+          <Text style={common.error}>{s.error}</Text>
         </Pressable>
       )}
-      {s.captureBlocked && (
-        <Text style={styles.warn}>Este aplicativo não permite que seu áudio seja compartilhado.</Text>
-      )}
+      {s.captureBlocked && <Text style={styles.warn}>Este aplicativo não permite que seu áudio seja compartilhado.</Text>}
       {sharer && (
         <View style={styles.screenShare}>
-          <VideoTrack
-            trackRef={calls.trackRef(sharer.identity, Track.Source.ScreenShare)}
-            objectFit="contain"
-            style={{ flex: 1 }}
-          />
+          <VideoTrack trackRef={calls.trackRef(sharer.identity, Track.Source.ScreenShare)} objectFit="contain" style={{ flex: 1 }} />
+          <View style={styles.liveTag}>
+            <Text style={styles.liveText}>AO VIVO · {sharer.name}</Text>
+          </View>
         </View>
       )}
       <FlatList
@@ -71,9 +74,19 @@ export function CallScreen({ nav }: { nav: Nav }) {
         renderItem={({ item }) => (
           <Tile p={item} small={!!sharer} version={s.version} onLongPress={() => !item.isLocal && setVolumeFor(item)} />
         )}
+        ListFooterComponent={
+          s.participants.length > 1 ? (
+            <Text style={[common.faint, { textAlign: 'center', marginTop: space.sm }]}>Segure em alguém para ajustar o volume.</Text>
+          ) : undefined
+        }
       />
-      <View style={styles.controls}>
-        <Control name={s.muted ? 'micOff' : 'mic'} danger={s.muted} label="Microfone" onPress={() => void calls.toggleMute()} />
+      <View style={[common.panel, styles.controls]}>
+        <Control
+          name={s.muted ? 'micOff' : 'mic'}
+          danger={s.muted}
+          label={s.muted ? 'Ativar microfone' : 'Silenciar'}
+          onPress={() => void calls.toggleMute()}
+        />
         <Control
           name={s.deafened ? 'headphonesOff' : 'headphones'}
           danger={s.deafened}
@@ -94,8 +107,8 @@ export function CallScreen({ nav }: { nav: Nav }) {
         />
         <Control
           name="phoneOff"
-          danger
-          label="Sair"
+          hangup
+          label="Sair da chamada"
           onPress={async () => {
             await calls.leave();
             nav.back();
@@ -103,31 +116,28 @@ export function CallScreen({ nav }: { nav: Nav }) {
         />
       </View>
       {shareMenu && (
-        <Modal transparent animationType="fade" onRequestClose={() => setShareMenu(false)}>
-          <Pressable style={styles.backdrop} onPress={() => setShareMenu(false)}>
-            <View style={styles.sheet}>
-              <Text style={common.headerTitle}>Compartilhar tela</Text>
-              <SheetButton
-                label="Só a tela"
-                onPress={() => {
-                  setShareMenu(false);
-                  void calls.startScreenShare(false);
-                }}
-              />
-              <SheetButton
-                label="Tela + áudio do aparelho"
-                onPress={() => {
-                  setShareMenu(false);
-                  void calls.startScreenShare(true);
-                }}
-              />
-              <Text style={common.muted}>
-                O áudio de outros apps (Android 10+) é enviado sem o som da chamada. Apps que proíbem a captura não serão
-                ouvidos.
-              </Text>
-            </View>
-          </Pressable>
-        </Modal>
+        <Sheet title="Compartilhar tela" onClose={() => setShareMenu(false)}>
+          <SheetItem
+            icon="screen"
+            label="Só a tela"
+            onPress={() => {
+              setShareMenu(false);
+              void calls.startScreenShare(false);
+            }}
+          />
+          <SheetItem
+            icon="volume"
+            label="Tela + áudio do aparelho"
+            hint="Android 10+. Sem o som da chamada."
+            onPress={() => {
+              setShareMenu(false);
+              void calls.startScreenShare(true);
+            }}
+          />
+          <Text style={[common.faint, { paddingTop: space.sm }]}>
+            Apps que proíbem a captura de áudio não serão ouvidos (o Android respeita a escolha deles).
+          </Text>
+        </Sheet>
       )}
       {volumeFor && <VolumeSheet p={volumeFor} onClose={() => setVolumeFor(null)} />}
     </View>
@@ -136,9 +146,10 @@ export function CallScreen({ nav }: { nav: Nav }) {
 
 function Tile({ p, small, onLongPress }: { p: ParticipantView; small: boolean; version: number; onLongPress: () => void }) {
   const user = useNexus((s) => s.users[p.identity]);
-  const height = small ? 80 : 180;
+  const height = small ? 84 : 190;
+  const speaking = p.speaking && !p.micMuted;
   return (
-    <Pressable onLongPress={onLongPress} style={[styles.tile, { height }, p.speaking && !p.micMuted && styles.speaking]}>
+    <Pressable onLongPress={onLongPress} style={[styles.tile, { height }, speaking && styles.speaking]}>
       {p.hasCamera ? (
         <VideoTrack
           trackRef={calls.trackRef(p.identity, Track.Source.Camera)}
@@ -147,11 +158,11 @@ function Tile({ p, small, onLongPress }: { p: ParticipantView; small: boolean; v
           style={StyleSheet.absoluteFill}
         />
       ) : (
-        <Avatar user={user ?? { id: p.identity, display_name: p.name, avatar_url: null }} size={small ? 40 : 64} />
+        <Avatar user={user ?? { id: p.identity, display_name: p.name, avatar_url: null }} size={small ? 40 : 72} speaking={speaking} />
       )}
       <View style={styles.label}>
         {p.micMuted && <Icon name="micOff" size={12} color={colors.danger} />}
-        <Text style={{ color: colors.text, fontSize: 12 }} numberOfLines={1}>
+        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '600' }} numberOfLines={1}>
           {user?.display_name ?? p.name}
         </Text>
       </View>
@@ -159,22 +170,29 @@ function Tile({ p, small, onLongPress }: { p: ParticipantView; small: boolean; v
   );
 }
 
-function Control(props: { name: Parameters<typeof Icon>[0]['name']; onPress: () => void; label: string; danger?: boolean; active?: boolean }) {
+function Control(props: {
+  name: IconName;
+  onPress: () => void;
+  label: string;
+  danger?: boolean;
+  active?: boolean;
+  hangup?: boolean;
+}) {
+  const bg = props.hangup
+    ? colors.danger
+    : props.danger
+      ? 'rgba(244,80,107,0.18)'
+      : props.active
+        ? colors.accent
+        : colors.surfaceRaised;
+  const fg = props.hangup || props.active ? '#fff' : props.danger ? colors.danger : colors.text;
   return (
     <Pressable
       onPress={props.onPress}
       accessibilityLabel={props.label}
-      style={[styles.control, props.danger && { backgroundColor: colors.danger }, props.active && { backgroundColor: colors.accent }]}
+      style={({ pressed }) => [styles.control, props.hangup && styles.hangup, { backgroundColor: bg }, pressed && { transform: [{ scale: 0.94 }] }]}
     >
-      <Icon name={props.name} color={props.danger || props.active ? '#fff' : colors.text} />
-    </Pressable>
-  );
-}
-
-function SheetButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <Pressable style={common.buttonSecondary} onPress={onPress}>
-      <Text style={common.text}>{label}</Text>
+      <Icon name={props.name} color={fg} />
     </Pressable>
   );
 }
@@ -185,67 +203,115 @@ function VolumeSheet({ p, onClose }: { p: ParticipantView; onClose: () => void }
   const pct = Math.round(volume * 100);
   const step = (d: number) => calls.setVolume(p.identity, (pct + d) / 100);
   return (
-    <Modal transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <View style={styles.sheet}>
-          <Text style={common.headerTitle}>{p.name}</Text>
-          <View style={[common.row, { justifyContent: 'space-between' }]}>
-            <SheetButton label="−25%" onPress={() => step(-25)} />
-            <Text style={[common.text, { fontSize: 22 }]}>{pct}%</Text>
-            <SheetButton label="+25%" onPress={() => step(25)} />
+    <Sheet title={p.name} onClose={onClose}>
+      <View style={{ gap: space.md }}>
+        <View style={[common.row, { justifyContent: 'space-between' }]}>
+          <StepButton label="−10%" onPress={() => step(-10)} />
+          <View style={{ alignItems: 'center' }}>
+            <Text style={[styles.volume, pct > 100 && { color: colors.highlight }]}>{pct === 0 ? 'Mudo' : `${pct}%`}</Text>
+            <Text style={common.faint}>volume para você</Text>
           </View>
-          <View style={[common.row, { gap: space.sm }]}>
-            <SheetButton label="Silenciar" onPress={() => calls.setVolume(p.identity, 0)} />
-            <SheetButton label="100%" onPress={() => calls.setVolume(p.identity, 1)} />
-          </View>
-          <Text style={common.muted}>Só altera o que você ouve.</Text>
+          <StepButton label="+10%" onPress={() => step(10)} />
         </View>
-      </Pressable>
-    </Modal>
+        <View style={styles.track}>
+          <View style={[styles.fill, { width: `${(pct / 300) * 100}%` }]} />
+          <View style={[styles.mark, { left: '33.3%' }]} />
+        </View>
+        <View style={[common.row, { gap: space.sm }]}>
+          {[0, 50, 100, 200, 300].map((v) => (
+            <Pressable
+              key={v}
+              onPress={() => calls.setVolume(p.identity, v / 100)}
+              style={[styles.preset, pct === v && styles.presetOn]}
+            >
+              <Text style={[common.text, { fontWeight: '700', fontSize: 13 }]}>{v === 0 ? 'Mudo' : `${v}%`}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={common.faint}>Só altera o que você ouve. Acima de 100% o som é amplificado.</Text>
+      </View>
+    </Sheet>
+  );
+}
+
+function StepButton({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable style={({ pressed }) => [styles.step, pressed && { opacity: 0.7 }]} onPress={onPress}>
+      <Text style={[common.text, { fontWeight: '800' }]}>{label}</Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
+  ended: { alignItems: 'center', justifyContent: 'center', gap: space.md, padding: space.xl },
+  endedIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: colors.surfaceRaised,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  notice: { marginHorizontal: space.md, padding: space.sm, borderRadius: radius.md, backgroundColor: 'rgba(244,80,107,0.12)' },
   warn: { color: colors.highlight, padding: space.sm, textAlign: 'center' },
-  screenShare: { height: 240, backgroundColor: '#000', margin: space.sm, borderRadius: 10, overflow: 'hidden' },
+  screenShare: { height: 240, backgroundColor: '#000', margin: space.sm, borderRadius: radius.lg, overflow: 'hidden' },
+  liveTag: { position: 'absolute', top: 8, left: 8, backgroundColor: colors.danger, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  liveText: { color: '#fff', fontWeight: '800', fontSize: 11 },
   tile: {
     flex: 1,
     backgroundColor: colors.surface,
-    borderRadius: 10,
+    borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
     borderWidth: 2,
-    borderColor: 'transparent',
+    borderColor: colors.border,
   },
   speaking: { borderColor: colors.speaking },
   label: {
     position: 'absolute',
-    left: 6,
-    bottom: 6,
+    left: 8,
+    bottom: 8,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    borderRadius: radius.round,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     maxWidth: '90%',
   },
   controls: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    padding: space.md,
-    backgroundColor: colors.surface,
+    alignItems: 'center',
+    margin: space.sm,
+    paddingVertical: space.md,
+    paddingHorizontal: space.sm,
   },
-  control: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+  control: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center' },
+  hangup: { width: 64, borderRadius: 26 },
+  volume: { color: colors.text, fontSize: 30, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  step: {
+    width: 64,
+    height: 48,
+    borderRadius: radius.md,
     backgroundColor: colors.surfaceRaised,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: colors.surface, padding: space.lg, gap: space.md, borderTopLeftRadius: 16, borderTopRightRadius: 16 },
+  track: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceHover },
+  fill: { height: '100%', borderRadius: 3, backgroundColor: colors.accent },
+  mark: { position: 'absolute', top: -3, width: 2, height: 12, backgroundColor: colors.textFaint },
+  preset: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 9,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceRaised,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  presetOn: { borderColor: colors.accent, backgroundColor: 'rgba(84,104,245,0.18)' },
 });

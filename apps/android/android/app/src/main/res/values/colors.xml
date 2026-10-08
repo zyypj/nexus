@@ -1,0 +1,5 @@
+<resources>
+    <!-- Same as packages/ui colors.bg / accent. -->
+    <color name="nx_bg">#0A0C14</color>
+    <color name="nx_accent">#5468F5</color>
+</resources>

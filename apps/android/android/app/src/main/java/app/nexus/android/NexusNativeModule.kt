@@ -406,6 +406,28 @@ class NexusNativeModule(private val ctx: ReactApplicationContext) :
         audio.stop()
     }
 
+    // ---- media viewer / clipboard ----
+
+    /** Full-screen video player (VideoPlayerActivity). Stops chat audio first. */
+    @ReactMethod
+    fun playVideo(url: String, title: String, type: String) {
+        audio.stop()
+        val intent = Intent(ctx, VideoPlayerActivity::class.java)
+            .putExtra(VideoPlayerActivity.EXTRA_URL, url)
+            .putExtra(VideoPlayerActivity.EXTRA_TITLE, title)
+            .putExtra(VideoPlayerActivity.EXTRA_TYPE, type)
+        val activity = ctx.currentActivity
+        if (activity != null) activity.startActivity(intent)
+        else ctx.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    /** React Native has no clipboard API in core anymore. */
+    @ReactMethod
+    fun copyText(text: String) {
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("Nexus", text))
+    }
+
     // Required by NativeEventEmitter on Android.
     @ReactMethod
     fun addListener(eventName: String) {}
