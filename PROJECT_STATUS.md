@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-08 (versão 0.2.3).
+Última atualização: 2026-10-08 (versão 0.2.4).
 
 ## Fase atual
 
@@ -89,6 +89,17 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
+
+## 0.2.4 — Android conecta em servidor http://
+
+- Bug: o APK release não conectava em `http://IP:porta`. O plugin Gradle do React Native força
+  `usesCleartextTraffic="false"` em todo build release (ignorando o `manifestPlaceholders` do
+  `build.gradle`), então o Android bloqueava HTTP sem TLS. Correção:
+  `res/xml/network_security_config.xml` (`cleartextTrafficPermitted="true"`), que tem precedência
+  (API 24+). Conferido no APK com `aapt2 dump`.
+- Login (Windows e Android): endereço sem `http://`/`https://` tentava só `https://`. Agora tenta
+  HTTPS e depois HTTP (`resolveServerUrl` em `packages/shared`, com testes) e o erro diz quais
+  endereços foram tentados.
 
 ## 0.2.3 — volume por pessoa até 300%
 

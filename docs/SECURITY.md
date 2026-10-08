@@ -81,6 +81,10 @@ query string, que contém assinaturas de URL), e tokens nunca aparecem em URLs.
 - API: use HTTPS. Sem proxy reverso, o servidor pode terminar TLS sozinho
   (`NEXUS_TLS_CERT`/`NEXUS_TLS_KEY`). Sinalização do LiveKit: use `wss://` atrás de um proxy
   com TLS quando possível (ver [LIVEKIT.md](LIVEKIT.md)).
+- Os apps aceitam `http://` porque muitos servidores próprios rodam sem TLS (Pterodactyl sem
+  proxy). No Android isso é liberado por `res/xml/network_security_config.xml`. Sem HTTPS, a
+  senha e o token viajam em texto puro na rede. No login, um endereço sem `http://` ou `https://`
+  tenta HTTPS primeiro.
 
 ## Pendências conhecidas
 

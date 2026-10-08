@@ -1,13 +1,7 @@
-import { ApiError } from "@nexus/shared";
+import { ApiError, ServerUnreachableError, resolveServerUrl, serverUrlCandidates } from "@nexus/shared";
 import { type FormEvent, useState } from "react";
 import { createClient, useSession } from "../lib/nexus";
 import { useSettings } from "../lib/settings";
-
-function normalizeUrl(raw: string): string {
-  let url = raw.trim().replace(/\/+$/, "");
-  if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
-  return url;
-}
 
 const errorText = (e: unknown): string => {
   if (e instanceof ApiError) {
@@ -15,6 +9,7 @@ const errorText = (e: unknown): string => {
     if (e.code === "rate_limited") return "Muitas tentativas. Aguarde um pouco.";
     return e.message;
   }
+  if (e instanceof ServerUnreachableError) return `${e.message} Confira o endereço e a porta.`;
   return "Não foi possível conectar ao servidor. Verifique o endereço.";
 };
 
@@ -32,15 +27,16 @@ export function LoginView() {
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    const url = normalizeUrl(server);
-    if (!url) {
+    if (serverUrlCandidates(server).length === 0) {
       setError("Informe o endereço do servidor.");
       return;
     }
     setBusy(true);
     try {
+      // Without http:// or https://, tries HTTPS and then HTTP.
+      const url = await resolveServerUrl(server);
+      setServer(url);
       const c = createClient(url);
-      await c.api.info();
       if (mode === "login") await c.login(username, password);
       else await c.register(username, password, invite, displayName || undefined);
       useSettings.getState().set({ serverUrl: url });

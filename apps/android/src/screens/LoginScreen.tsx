@@ -1,14 +1,8 @@
-import { ApiError } from '@nexus/shared';
+import { ApiError, ServerUnreachableError, resolveServerUrl, serverUrlCandidates } from '@nexus/shared';
 import React, { useEffect, useState } from 'react';
 import { Image, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { createClient, saveServerUrl, savedServerUrl, useSession } from '../lib/nexus';
 import { colors, common, space } from '../ui/theme';
-
-function normalizeUrl(raw: string): string {
-  let url = raw.trim().replace(/\/+$/, '');
-  if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
-  return url;
-}
 
 export function LoginScreen() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -26,12 +20,13 @@ export function LoginScreen() {
 
   async function submit() {
     setError(null);
-    const url = normalizeUrl(server);
-    if (!url) return setError('Informe o endereço do servidor.');
+    if (serverUrlCandidates(server).length === 0) return setError('Informe o endereço do servidor.');
     setBusy(true);
     try {
+      // Without http:// or https://, tries HTTPS and then HTTP.
+      const url = await resolveServerUrl(server);
+      setServer(url);
       const c = createClient(url);
-      await c.api.info();
       if (mode === 'login') await c.login(username.trim(), password);
       else await c.register(username.trim(), password, invite.trim(), displayName.trim() || undefined);
       await saveServerUrl(url);
@@ -39,6 +34,8 @@ export function LoginScreen() {
     } catch (e) {
       if (e instanceof ApiError) {
         setError(e.code === 'invalid_credentials' ? 'Usuário ou senha incorretos.' : e.message);
+      } else if (e instanceof ServerUnreachableError) {
+        setError(`${e.message} Confira o endereço e a porta.`);
       } else setError('Não foi possível conectar ao servidor.');
     } finally {
       setBusy(false);

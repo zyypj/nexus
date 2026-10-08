@@ -5,3 +5,4 @@ export * from "./format";
 export * from "./gateway";
 export * from "./store";
 export * from "./version";
+export * from "./serverUrl";

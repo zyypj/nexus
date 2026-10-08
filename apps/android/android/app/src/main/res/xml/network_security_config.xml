@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Self-hosted servers are often plain http://IP:port (Pterodactyl without a
+  proxy), so cleartext is allowed for every host. This file instead of
+  android:usesCleartextTraffic: the React Native Gradle plugin forces that
+  attribute to "false" in release builds, and a network security config takes
+  precedence over it (API 24+). Prefer HTTPS; see docs/SECURITY.md.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
