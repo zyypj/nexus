@@ -722,6 +722,19 @@ button.link {
   align-items: baseline;
   gap: var(--space-sm);
 }
+.author-avatar {
+  align-self: flex-start;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.author-name {
+  font-weight: 700;
+  color: var(--c-text);
+  padding: 0;
+}
+.author-name:hover {
+  text-decoration: underline;
+}
 .message-head time {
   color: var(--c-text-faint);
   font-size: var(--fs-xs);

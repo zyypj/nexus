@@ -2,10 +2,12 @@ import type { ServerInvitePreview, ServerView } from "@nexus/protocol";
 import { serverHasUnread, totalUnread } from "@nexus/shared";
 import { memo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { openContextMenu } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Modal } from "../components/Modal";
 import { client, useNexus } from "../lib/nexus";
 import { initials, serverGradient, useUi } from "../lib/ui";
+import { serverMenu } from "./menus";
 
 /** Opens a server on its last channel (or its first text channel). */
 export function openServer(id: string | null) {
@@ -66,7 +68,13 @@ export function ServerRail() {
 const ServerRailItem = memo(function ServerRailItem({ server, active }: { server: ServerView; active: boolean }) {
   const unread = useNexus((s) => serverHasUnread(s, server.id));
   return (
-    <RailItem active={active} unread={unread} label={server.name} onClick={() => openServer(server.id)}>
+    <RailItem
+      active={active}
+      unread={unread}
+      label={server.name}
+      onClick={() => openServer(server.id)}
+      onContextMenu={(e) => openContextMenu(e, () => serverMenu(server.id))}
+    >
       <ServerIcon server={server} />
     </RailItem>
   );
@@ -80,7 +88,9 @@ function RailItem({
   children,
   badge,
   accent,
+  onContextMenu,
 }: {
+  onContextMenu?: (e: React.MouseEvent) => void;
   active?: boolean;
   unread?: boolean;
   label: string;
@@ -96,6 +106,7 @@ function RailItem({
         type="button"
         className={`rail-btn${accent ? " accent" : ""}`}
         onClick={onClick}
+        onContextMenu={onContextMenu}
         aria-label={label}
         data-tip={label}
       >

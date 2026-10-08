@@ -1,11 +1,13 @@
-import { type Id, Permissions, type ServerMember, type ServerView, hasPermission } from "@nexus/protocol";
-import { memberColor, memberTop } from "@nexus/shared";
-import { memo, useMemo, useState } from "react";
+import type { Id, ServerMember, ServerView } from "@nexus/protocol";
+import { memberColor } from "@nexus/shared";
+import { memo, useMemo } from "react";
 import { Avatar } from "../components/Avatar";
+import { openContextMenu } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
-import { client, useNexus } from "../lib/nexus";
-import { colorHex, useUi } from "../lib/ui";
-import { openServer } from "./ServerRail";
+import { openProfile } from "../lib/dialogs";
+import { useNexus } from "../lib/nexus";
+import { useUi } from "../lib/ui";
+import { userMenu } from "./menus";
 
 interface Group {
   key: string;
@@ -20,7 +22,6 @@ interface Group {
 export function MemberList({ server }: { server: ServerView }) {
   const presences = useNexus((s) => s.presences);
   const meId = useNexus((s) => s.me?.id);
-  const [card, setCard] = useState<{ member: ServerMember; top: number } | null>(null);
 
   const groups = useMemo(() => {
     const online = (m: ServerMember) => m.user.id === meId || (presences[m.user.id] ?? "offline") !== "offline";
@@ -54,12 +55,11 @@ export function MemberList({ server }: { server: ServerView }) {
               server={server}
               member={m}
               offline={g.key === "offline"}
-              onOpen={(top) => setCard({ member: m, top })}
+              onOpen={(x, y) => openProfile({ userId: m.user.id, serverId: server.id, x, y })}
             />
           ))}
         </section>
       ))}
-      {card && <MemberCard server={server} member={card.member} top={card.top} onClose={() => setCard(null)} />}
     </aside>
   );
 }
@@ -73,7 +73,7 @@ const MemberRow = memo(function MemberRow({
   server: ServerView;
   member: ServerMember;
   offline: boolean;
-  onOpen: (top: number) => void;
+  onOpen: (x: number, y: number) => void;
 }) {
   const presence = useNexus((s) => (offline ? undefined : (s.presences[member.user.id] ?? "online")));
   const color = memberColor(server, member.user.id);
@@ -81,7 +81,15 @@ const MemberRow = memo(function MemberRow({
     <button
       type="button"
       className={`member-item${offline ? " offline" : ""}`}
-      onClick={(e) => onOpen((e.currentTarget as HTMLElement).getBoundingClientRect().top)}
+      onClick={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        onOpen(r.left, r.top);
+      }}
+      onContextMenu={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        const at = { x: r.left, y: r.top };
+        openContextMenu(e, () => userMenu(member.user.id, at, server.id));
+      }}
     >
       <Avatar user={member.user} size={32} presence={presence} />
       <span className="member-item-name" style={color ? { color } : undefined}>
@@ -91,89 +99,6 @@ const MemberRow = memo(function MemberRow({
     </button>
   );
 });
-
-function MemberCard({
-  server,
-  member,
-  top,
-  onClose,
-}: {
-  server: ServerView;
-  member: ServerMember;
-  top: number;
-  onClose: () => void;
-}) {
-  const meId = useNexus((s) => s.me?.id ?? "");
-  const color = memberColor(server, member.user.id);
-  const roles = server.roles.filter((r) => member.role_ids.includes(r.id));
-  const p = server.permissions;
-  const isMe = member.user.id === meId;
-  const canModerate =
-    !isMe && member.user.id !== server.owner_id && memberTop(server, meId) > memberTop(server, member.user.id);
-  const [error, setError] = useState<string | null>(null);
-  const api = client().api;
-  return (
-    <div className="card-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="member-card" style={{ top: Math.min(top, window.innerHeight - 340) }}>
-        <div className="member-card-banner" style={color ? { background: color } : undefined} />
-        <div className="member-card-body">
-          <Avatar user={member.user} size={64} />
-          <strong style={color ? { color } : undefined}>{member.nickname || member.user.display_name}</strong>
-          <small>@{member.user.username}</small>
-          {member.user.bio && <p className="member-card-bio">{member.user.bio}</p>}
-          {roles.length > 0 && (
-            <div className="role-chips">
-              {roles.map((r) => (
-                <span key={r.id} className="role-chip">
-                  <span className="role-dot" style={{ background: r.color ? colorHex(r.color) : "var(--c-text-faint)" }} />
-                  {r.name}
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="row-actions">
-            {!isMe && (
-              <button
-                type="button"
-                className="btn primary small"
-                onClick={() =>
-                  void api.openDm(member.user.id).then((c) => {
-                    onClose();
-                    openServer(null);
-                    void client().openConversation(c.id);
-                  })
-                }
-              >
-                Mensagem
-              </button>
-            )}
-            {canModerate && hasPermission(p, Permissions.KICK_MEMBERS) && (
-              <button
-                type="button"
-                className="btn small"
-                onClick={() => void api.kickMember(server.id, member.user.id).then(onClose, (e: Error) => setError(e.message))}
-              >
-                Expulsar
-              </button>
-            )}
-            {canModerate && hasPermission(p, Permissions.BAN_MEMBERS) && (
-              <button
-                type="button"
-                className="btn small danger"
-                onClick={() =>
-                  void api.banMember(server.id, member.user.id).then(onClose, (e: Error) => setError(e.message))
-                }
-              >
-                Banir
-              </button>
-            )}
-          </div>
-          {error && <p className="form-error">{error}</p>}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /** Toggle shown in channel headers. */
 export function MemberListToggle() {

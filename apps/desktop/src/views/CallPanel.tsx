@@ -1,9 +1,11 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { type ParticipantView, calls, useCall } from "../call/callStore";
 import { Avatar } from "../components/Avatar";
+import { openContextMenu } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
-import { useNexus } from "../lib/nexus";
+import { client, useNexus } from "../lib/nexus";
 import { useSettings } from "../lib/settings";
+import { userMenu } from "./menus";
 
 /**
  * Call stage. Screen shares take the spotlight; otherwise an automatic grid
@@ -89,9 +91,15 @@ const ParticipantTile = memo(function ParticipantTile({
     <div
       className={`tile${p.speaking && !p.micMuted ? " speaking" : ""}`}
       onContextMenu={(e) => {
-        if (p.isLocal) return;
-        e.preventDefault();
-        setMenu(true);
+        // Volume first (the most used action in a call), then the usual person menu.
+        const at = { x: e.clientX, y: e.clientY };
+        const conv = useCall.getState().conversationId;
+        const serverId = (conv && client().store.getState().conversations[conv]?.server_id) || null;
+        openContextMenu(e, () => [
+          !p.isLocal && { label: "Volume e silenciar…", icon: "volume", run: () => setMenu(true) },
+          { separator: true },
+          ...userMenu(p.identity, at, serverId),
+        ]);
       }}
     >
       {p.hasCamera ? (

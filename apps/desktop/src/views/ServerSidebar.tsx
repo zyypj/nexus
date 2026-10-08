@@ -4,24 +4,14 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { calls, useCall } from "../call/callStore";
 import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
+import { openContextMenu } from "../components/ContextMenu";
 import { Modal } from "../components/Modal";
+import { openDialog } from "../lib/dialogs";
 import { client, useNexus } from "../lib/nexus";
 import { useUi } from "../lib/ui";
-import { ChannelSettings } from "./ChannelSettings";
-import { InviteDialog } from "./InviteDialog";
-import { openServer } from "./ServerRail";
-import { ServerSettings } from "./ServerSettings";
+import { categoryMenu, channelMenu, userMenu } from "./menus";
 
 const NO_CATEGORIES: { id: Id; name: string; position: number }[] = [];
-
-type Dialog =
-  | { kind: "invite" }
-  | { kind: "settings" }
-  | { kind: "channel"; categoryId: Id | null; type: "text" | "voice" }
-  | { kind: "category" }
-  | { kind: "channelSettings"; channelId: Id }
-  | { kind: "leave" }
-  | null;
 
 /** Channel list of the open server (categories, text and voice channels). */
 export function ServerSidebar({ serverId }: { serverId: Id }) {
@@ -34,7 +24,6 @@ export function ServerSidebar({ serverId }: { serverId: Id }) {
   );
   const active = useNexus((s) => s.activeConversationId);
   const [menu, setMenu] = useState(false);
-  const [dialog, setDialog] = useState<Dialog>(null);
   if (!server) return null;
   const perms = server.permissions;
   const canChannels = hasPermission(perms, Permissions.MANAGE_CHANNELS);
@@ -55,7 +44,7 @@ export function ServerSidebar({ serverId }: { serverId: Id }) {
                 label: "Convidar pessoas",
                 icon: "link",
                 accent: true,
-                run: () => setDialog({ kind: "invite" }),
+                run: () => openDialog({ kind: "invite", serverId }),
               },
               (hasPermission(perms, Permissions.MANAGE_SERVER) ||
                 hasPermission(perms, Permissions.MANAGE_ROLES) ||
@@ -63,15 +52,15 @@ export function ServerSidebar({ serverId }: { serverId: Id }) {
                 hasPermission(perms, Permissions.BAN_MEMBERS)) && {
                 label: "Configurações do servidor",
                 icon: "settings",
-                run: () => setDialog({ kind: "settings" }),
+                run: () => openDialog({ kind: "settings", serverId }),
               },
               canChannels && {
                 label: "Criar canal",
                 icon: "plus",
-                run: () => setDialog({ kind: "channel", categoryId: null, type: "text" }),
+                run: () => openDialog({ kind: "channel", serverId, categoryId: null, type: "text" }),
               },
-              canChannels && { label: "Criar categoria", icon: "plus", run: () => setDialog({ kind: "category" }) },
-              !isOwner && { label: "Sair do servidor", icon: "doorOut", danger: true, run: () => setDialog({ kind: "leave" }) },
+              canChannels && { label: "Criar categoria", icon: "plus", run: () => openDialog({ kind: "category", serverId }) },
+              !isOwner && { label: "Sair do servidor", icon: "doorOut", danger: true, run: () => openDialog({ kind: "leave", serverId }) },
             ]}
           />
         )}
@@ -80,53 +69,18 @@ export function ServerSidebar({ serverId }: { serverId: Id }) {
         {groups.map((g) => (
           <ChannelCategory
             key={g.category?.id ?? "none"}
+            serverId={serverId}
             group={g}
             active={active}
             canManage={canChannels}
-            onCreate={(type) => setDialog({ kind: "channel", categoryId: g.category?.id ?? null, type })}
-            onEdit={(channelId) => setDialog({ kind: "channelSettings", channelId })}
+            onCreate={(type) => openDialog({ kind: "channel", serverId, categoryId: g.category?.id ?? null, type })}
+            onEdit={(channelId) => openDialog({ kind: "channelSettings", serverId, channelId })}
           />
         ))}
         {groups.every((g) => g.channels.length === 0) && (
           <p className="empty-hint">Nenhum canal visível para você aqui.</p>
         )}
       </nav>
-      {dialog?.kind === "invite" && <InviteDialog serverId={serverId} onClose={() => setDialog(null)} />}
-      {dialog?.kind === "settings" && <ServerSettings serverId={serverId} onClose={() => setDialog(null)} />}
-      {dialog?.kind === "channel" && (
-        <CreateChannelDialog
-          serverId={serverId}
-          categoryId={dialog.categoryId}
-          type={dialog.type}
-          onClose={() => setDialog(null)}
-        />
-      )}
-      {dialog?.kind === "category" && <CreateCategoryDialog serverId={serverId} onClose={() => setDialog(null)} />}
-      {dialog?.kind === "channelSettings" && (
-        <ChannelSettings serverId={serverId} targetId={dialog.channelId} onClose={() => setDialog(null)} />
-      )}
-      {dialog?.kind === "leave" && (
-        <Modal title={`Sair de ${server.name}?`} onClose={() => setDialog(null)}>
-          <p className="hint">Você só volta com um novo convite.</p>
-          <div className="modal-actions">
-            <button type="button" className="btn" onClick={() => setDialog(null)}>
-              Cancelar
-            </button>
-            <button
-              type="button"
-              className="btn danger"
-              onClick={() => {
-                void client()
-                  .api.leaveServer(serverId)
-                  .then(() => openServer(null));
-                setDialog(null);
-              }}
-            >
-              Sair do servidor
-            </button>
-          </div>
-        </Modal>
-      )}
     </>
   );
 }
@@ -167,12 +121,14 @@ function ServerMenu({ items, onClose }: { items: (MenuItem | false)[]; onClose: 
 }
 
 function ChannelCategory({
+  serverId,
   group,
   active,
   canManage,
   onCreate,
   onEdit,
 }: {
+  serverId: Id;
   group: ChannelGroup;
   active: Id | null;
   canManage: boolean;
@@ -186,7 +142,7 @@ function ChannelCategory({
   return (
     <div className="channel-category">
       {group.category && (
-        <div className="category-header">
+        <div className="category-header" onContextMenu={(e) => id && openContextMenu(e, () => categoryMenu(serverId, id))}>
           <button
             type="button"
             className="category-toggle"
@@ -232,7 +188,10 @@ const TextChannel = memo(function TextChannel({
   const unread = channel.unread_count;
   const locked = !hasPermission(channel.permissions, Permissions.SEND_MESSAGES);
   return (
-    <div className={`channel-row${active ? " active" : ""}${unread > 0 ? " unread" : ""}`}>
+    <div
+      className={`channel-row${active ? " active" : ""}${unread > 0 ? " unread" : ""}`}
+      onContextMenu={(e) => openContextMenu(e, () => channelMenu(channel))}
+    >
       <button
         type="button"
         className="channel-btn"
@@ -272,7 +231,10 @@ const VoiceChannel = memo(function VoiceChannel({
   const canConnect = hasPermission(channel.permissions, Permissions.CONNECT);
   return (
     <div className="voice-channel">
-      <div className={`channel-row${active ? " active" : ""}${here ? " connected" : ""}`}>
+      <div
+        className={`channel-row${active ? " active" : ""}${here ? " connected" : ""}`}
+        onContextMenu={(e) => openContextMenu(e, () => channelMenu(channel))}
+      >
         <button
           type="button"
           className="channel-btn"
@@ -337,7 +299,13 @@ function VoiceMember({
   });
   const speaking = useCall((s) => inMyCall && s.participants.some((p) => p.identity === userId && p.speaking));
   return (
-    <li className={`voice-member${speaking ? " speaking" : ""}`}>
+    <li
+      className={`voice-member${speaking ? " speaking" : ""}`}
+      onContextMenu={(e) => {
+        const at = { x: e.clientX, y: e.clientY };
+        openContextMenu(e, () => userMenu(userId, at, serverId || null));
+      }}
+    >
       <Avatar user={user} size={22} />
       <span className="voice-member-name" style={color ? { color } : undefined}>
         {name}
@@ -349,7 +317,7 @@ function VoiceMember({
   );
 }
 
-function CreateChannelDialog({
+export function CreateChannelDialog({
   serverId,
   categoryId,
   type: initialType,
@@ -428,7 +396,7 @@ function CreateChannelDialog({
   );
 }
 
-function CreateCategoryDialog({ serverId, onClose }: { serverId: Id; onClose: () => void }) {
+export function CreateCategoryDialog({ serverId, onClose }: { serverId: Id; onClose: () => void }) {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   return (

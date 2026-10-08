@@ -3,10 +3,12 @@ import { callForConversation, conversationTitle, dmPeer, sortedConversations } f
 import { memo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Avatar } from "../components/Avatar";
+import { openContextMenu } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { client, useNexus } from "../lib/nexus";
 import { CallStrip } from "./CallStrip";
 import { CreateGroupDialog } from "./CreateGroupDialog";
+import { conversationMenu } from "./menus";
 import { ServerSidebar } from "./ServerSidebar";
 import { UpdateBanner } from "./UpdateBanner";
 import { UserBar } from "./UserBar";
@@ -88,6 +90,10 @@ const ConversationItem = memo(function ConversationItem({
       type="button"
       className={`nav-item conv${active ? " active" : ""}${unread > 0 ? " unread" : ""}`}
       onClick={() => void client().openConversation(conversation.id)}
+      onContextMenu={(e) => {
+        const at = { x: e.clientX, y: e.clientY };
+        openContextMenu(e, () => conversationMenu(conversation, at));
+      }}
     >
       {conversation.kind === "dm" ? (
         <Avatar user={peerUser ?? peer} size={32} presence={presence} />

@@ -5,11 +5,14 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Avatar } from "../components/Avatar";
+import { type MenuEntry, openContextMenu } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { AudioPlayer, VideoPlayer, mediaKind } from "../components/MediaPlayers";
+import { openProfile } from "../lib/dialogs";
 import { client, useNexus } from "../lib/nexus";
 import { openExternal } from "../lib/platform";
 import { RichText } from "../lib/richText";
+import { userMenu } from "./menus";
 
 const GROUP_WINDOW_MS = 5 * 60_000;
 const EMPTY: ClientMessage[] = [];
@@ -125,6 +128,38 @@ const MessageItem = memo(function MessageItem({
   const [picker, setPicker] = useState<HTMLElement | null>(null);
   const [revealed, setRevealed] = useState(false);
   const mine = m.author_id === myId;
+  const serverId = useNexus((s) => s.conversations[m.conversation_id]?.server_id ?? null);
+  const canDelete = mine || isOwner || canModerate;
+  const remove = () => confirm("Apagar esta mensagem?") && void client().deleteMessage(m.conversation_id, m.id);
+
+  const messageMenu = (e: React.MouseEvent) => {
+    if (m.local) return;
+    // Selected text inside the message: copy the selection, not the whole text.
+    const selection = window.getSelection()?.toString() ?? "";
+    openContextMenu(e, (): MenuEntry[] => [
+      canReact && {
+        reactions: QUICK_REACTIONS,
+        pick: (emoji) => void client().toggleReaction(m.conversation_id, m.id, emoji),
+      },
+      { label: "Responder", icon: "reply", run: () => onReply(m.id) },
+      mine && !!m.content && { label: "Editar mensagem", icon: "edit", run: () => setEditing(true) },
+      (!!selection || !!m.content) && {
+        label: selection ? "Copiar seleção" : "Copiar texto",
+        icon: "copy",
+        run: () => void navigator.clipboard.writeText(selection || m.content).catch(() => undefined),
+      },
+      canDelete && { separator: true },
+      canDelete && { label: "Apagar mensagem", icon: "trash", danger: true, run: remove },
+    ]);
+  };
+  const authorProfile = (e: React.MouseEvent) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    openProfile({ userId: m.author_id, serverId, x: r.right, y: r.top });
+  };
+  const authorMenu = (e: React.MouseEvent) => {
+    const at = { x: e.clientX, y: e.clientY };
+    openContextMenu(e, () => userMenu(m.author_id, at, serverId));
+  };
 
   if (authorBlocked && !revealed) {
     return (
@@ -137,8 +172,15 @@ const MessageItem = memo(function MessageItem({
   }
 
   return (
-    <div className={`message${compact ? " compact" : ""}${m.local ? ` local ${m.local}` : ""}${picker ? " picking" : ""}`}>
-      {!compact && <Avatar user={author} size={38} />}
+    <div
+      className={`message${compact ? " compact" : ""}${m.local ? ` local ${m.local}` : ""}${picker ? " picking" : ""}`}
+      onContextMenu={messageMenu}
+    >
+      {!compact && (
+        <button type="button" className="author-avatar" onClick={authorProfile} onContextMenu={authorMenu} aria-label="Ver perfil">
+          <Avatar user={author} size={38} />
+        </button>
+      )}
       {compact && <time className="gutter-time">{formatTime(m.created_at)}</time>}
       <div className="message-main">
         {m.reply_to && (
@@ -149,7 +191,15 @@ const MessageItem = memo(function MessageItem({
         )}
         {!compact && (
           <div className="message-head">
-            <strong style={authorColor ? { color: authorColor } : undefined}>{authorName}</strong>
+            <button
+              type="button"
+              className="author-name"
+              style={authorColor ? { color: authorColor } : undefined}
+              onClick={authorProfile}
+              onContextMenu={authorMenu}
+            >
+              {authorName}
+            </button>
             <time>{formatTime(m.created_at)}</time>
           </div>
         )}
@@ -223,15 +273,8 @@ const MessageItem = memo(function MessageItem({
               <Icon name="edit" size={16} />
             </button>
           )}
-          {(mine || isOwner || canModerate) && (
-            <button
-              type="button"
-              className="icon-btn small danger"
-              title="Apagar"
-              onClick={() =>
-                confirm("Apagar esta mensagem?") && void client().deleteMessage(m.conversation_id, m.id)
-              }
-            >
+          {canDelete && (
+            <button type="button" className="icon-btn small danger" title="Apagar" onClick={remove}>
               <Icon name="trash" size={16} />
             </button>
           )}

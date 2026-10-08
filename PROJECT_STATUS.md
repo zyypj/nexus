@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-08 (versão 0.2.0).
+Última atualização: 2026-10-08 (versão 0.2.1).
 
 ## Fase atual
 
@@ -89,6 +89,29 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
+
+## 0.2.1 — botão direito e correções do primeiro uso dos servidores
+
+- **Menus de botão direito** (Windows), montados a partir do estado atual e só com o que a pessoa
+  pode fazer:
+  - **pessoa** (autor da mensagem, lista de membros, canal de voz, DM, amigos, quadro da call):
+    ver perfil, mandar mensagem, adicionar/remover amigo, aceitar/cancelar pedido, mudar apelido,
+    cargos (submenu com marcação, atualiza ao vivo), expulsar, banir, bloquear, copiar nome;
+  - **mensagem**: reagir, responder, editar, copiar texto/seleção, apagar;
+  - **servidor** (barra lateral): marcar como lido, convidar, configurações, criar canal/categoria,
+    mudar meu apelido, sair; **canal**: entrar/sair (voz), convidar, editar, copiar nome, apagar;
+    **categoria**: recolher, criar canal, editar, apagar;
+  - clicar no nome/foto do autor abre o cartão de perfil. Teclado: setas, Enter, Esc.
+  - O menu nativo do WebView fica só em campos de texto e texto selecionado.
+- Correções: painel de reações cortado na última mensagem; imagem aberta ficava embaixo da call
+  e das mensagens (`contain: strict` da lista prendia o overlay; agora vai para o `<body>`);
+  trocar de microfone com a supressão Avançada deixava o microfone mudo (o LiveKit não passa o
+  AudioContext ao reiniciar o RNNoise); a lista de microfones mostrava o "Padrão" duplicado;
+  aviso quando o microfone só entrega silêncio; som de "chamando" ao entrar em canal de voz
+  (Windows e Android); clicar na notificação não abria o app (toast próprio com clique no Windows).
+- Compartilhamento de tela: VP9 (L1T3) para texto/tela parada, H.264 para movimento; o
+  controle de qualidade ignora os primeiros ~12 s (estimativa de banda subindo) e volta para a
+  qualidade escolhida depois de uma queda. ⚠️ Não medido ponta a ponta com duas máquinas.
 
 ## 0.2.0 — servidores e visual novo
 

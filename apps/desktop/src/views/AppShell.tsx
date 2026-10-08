@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNexus } from "../lib/nexus";
 import { useUi } from "../lib/ui";
+import { ContextMenuHost } from "../components/ContextMenu";
 import { ChatView } from "./ChatView";
 import { FriendsView } from "./FriendsView";
+import { GlobalDialogs } from "./GlobalDialogs";
 import { IncomingCall } from "./IncomingCall";
 import { ServerRail } from "./ServerRail";
 import { SettingsModal } from "./SettingsModal";
@@ -20,6 +22,19 @@ export function AppShell() {
   useEffect(() => {
     if (connection === "ready" && !serverExists) useUi.getState().set({ serverId: null });
   }, [connection, serverExists]);
+  // Our own right-click menus replace the WebView's (Back / Reload / Inspect),
+  // except where it is useful: text fields and selected text (copy/paste).
+  useEffect(() => {
+    if (import.meta.env.DEV) return;
+    const onMenu = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest("input, textarea, [contenteditable=true]")) return;
+      if (window.getSelection()?.toString()) return;
+      e.preventDefault();
+    };
+    document.addEventListener("contextmenu", onMenu);
+    return () => document.removeEventListener("contextmenu", onMenu);
+  }, []);
   // Opening a channel from elsewhere (invite, notification) selects its server.
   useEffect(() => {
     if (activeServer && activeServer !== useUi.getState().serverId) useUi.getState().set({ serverId: activeServer });
@@ -49,6 +64,8 @@ export function AppShell() {
       </main>
       <IncomingCall />
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      <GlobalDialogs />
+      <ContextMenuHost />
     </div>
   );
 }

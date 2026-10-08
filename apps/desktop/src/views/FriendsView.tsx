@@ -3,8 +3,10 @@ import { ApiError } from "@nexus/shared";
 import { type FormEvent, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Avatar } from "../components/Avatar";
+import { openContextMenu } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { client, useNexus } from "../lib/nexus";
+import { userMenu } from "./menus";
 
 type Tab = "online" | "all" | "pending" | "blocked" | "add" | "invites";
 
@@ -83,7 +85,13 @@ function AddFriend() {
 function UserRow({ user, children, subtitle }: { user: PublicUser; children?: React.ReactNode; subtitle?: string }) {
   const presence = useNexus((s) => s.presences[user.id] ?? "offline");
   return (
-    <div className="user-row">
+    <div
+      className="user-row"
+      onContextMenu={(e) => {
+        const at = { x: e.clientX, y: e.clientY };
+        openContextMenu(e, () => userMenu(user.id, at));
+      }}
+    >
       <Avatar user={user} size={36} presence={presence} />
       <div className="user-row-names">
         <strong>{user.display_name}</strong>
