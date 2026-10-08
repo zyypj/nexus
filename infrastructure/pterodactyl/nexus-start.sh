@@ -67,7 +67,7 @@ case "${AUTO_UPDATE:-1}" in
   *) log "auto update disabled (AUTO_UPDATE=${AUTO_UPDATE})" ;;
 esac
 
-if [ ! -x ./nexus-server ]; then
+if [ ! -f ./nexus-server ]; then
   log "nexus-server binary missing and no release could be downloaded; check GITHUB_REPO/NEXUS_VERSION"
   exit 1
 fi

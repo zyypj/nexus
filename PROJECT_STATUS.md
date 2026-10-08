@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-07 (sessão 1).
+Última atualização: 2026-10-08 (sessão 1).
 
 ## Fase atual
 
@@ -45,6 +45,15 @@ debug).
   `ANDROID_KEY_PASSWORD`. **Originais (com backup obrigatório!) em `D:\nexus-build\keys`** —
   perder a chave do updater ou a keystore impede atualizar os apps já instalados.
 - Detalhes: docs/UPDATES.md.
+- **v0.1.0 publicada e marcada como latest** (workflow Release verde). Conferido: todos os
+  assets presentes; `releases/latest/download/latest.json` e `VERSION` resolvem; assinatura
+  minisign do instalador válida para a chave pública do `tauri.conf.json`; APK assinado com a
+  keystore de release (SHA-256 do certificado `f903b344…2123`, versionCode 100);
+  `nexus-start.sh` baixou e conferiu o binário real da release (ELF estático x86_64).
+- Correções que só entram na próxima release: `nexus-start.sh` checava `-x` antes de iniciar
+  (inofensivo no Linux, só falhava em teste no Windows) e o Dockerfile do servidor não incluía
+  o membro `tests/noise-bench` do workspace (workflow opcional "Docker images" falhava;
+  correção ainda não validada num build real).
 
 ## Funcionalidades prontas (verificadas)
 
@@ -78,7 +87,6 @@ qualidade automática, áudio do PC por process loopback, RNNoise, token no Cred
 - Modo Padrão de supressão de ruído não medido (só RNNoise).
 - Benchmark de screen share 1080p30 não medido.
 - Docker images não construídas localmente; eggs não importados num painel real.
-- CI (`.github/workflows`) escrito mas nunca executado (repo ainda não está no GitHub).
 - Sem notificações push no Android em segundo plano (sem FCM; planejado: serviço em primeiro
   plano apenas durante calls).
 - O instalador NSIS rodado de dentro do Claude foi virtualizado (MSIX); para uso real, execute
@@ -151,7 +159,7 @@ infrastructure/pterodactyl/      egg-nexus-server.json, egg-nexus-livekit.json
 scripts/                         dev-*.ps1, dev-seed.py, bench-calls.sh, perf-bench/
 tests/noise-bench/               benchmark de supressão de ruído
 docs/                            ARCHITECTURE, WINDOWS, ANDROID, AUDIO, SCREEN_SHARE, LIVEKIT, PTERODACTYL, BENCHMARKS, SECURITY
-.github/workflows/               ci.yml, docker.yml
+.github/workflows/               ci.yml, release.yml, docker.yml
 ```
 
 ## Próximas tarefas
