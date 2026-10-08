@@ -57,7 +57,8 @@ atualizam sozinhos a partir dela — ver [docs/UPDATES.md](docs/UPDATES.md).
   `docker run -v nexus-data:/data -p 3000:3000 -e LIVEKIT_URL=... nexus-server`.
 - Variáveis do servidor: `NEXUS_HOST`, `NEXUS_PORT`, `NEXUS_PUBLIC_URL`, `NEXUS_DATA_DIR`,
   `JWT_SECRET`, `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`,
-  `ALLOW_PUBLIC_REGISTRATION` (padrão `false`), `MAX_UPLOAD_SIZE`, `LOG_LEVEL`
+  `ALLOW_PUBLIC_REGISTRATION` (padrão `false`), `MAX_UPLOAD_SIZE` (padrão `0` = sem limite),
+  `UPLOAD_MIN_FREE_DISK` (padrão `1GB`), `LOG_LEVEL`
   (+ opcionais em `services/server/src/config.rs`).
 
 ## Testes e qualidade

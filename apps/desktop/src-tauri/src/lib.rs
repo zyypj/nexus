@@ -101,6 +101,9 @@ pub fn run() {
                 .inner_size(1180.0, 760.0)
                 .min_inner_size(820.0, 520.0)
                 .additional_browser_args(&browser_args())
+                // Let the page receive dropped files (HTML5 drag & drop into
+                // the chat) instead of Tauri's own file-drop events.
+                .disable_drag_drop_handler()
                 // The WebView only ever loads our bundled UI, so media
                 // permissions are granted without WebView2's own prompt.
                 .on_permission_request(|_webview, kind| match kind {

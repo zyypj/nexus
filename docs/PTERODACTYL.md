@@ -80,7 +80,8 @@ chaves vão por `LIVEKIT_KEYS`). Console mostra, por exemplo:
 | LiveKit API URL | opcional, ex. `http://172.18.0.1:7880` para falar com o LiveKit pela rede interna |
 | LiveKit API key / secret | os mesmos do LiveKit |
 | Public registration | `false` |
-| Max upload size | `25MB` |
+| Max upload size | `0` (sem limite; ou ex. `2GB`) |
+| Min free disk | `1GB` (uploads recusados se o disco ficaria abaixo disso) |
 
 Persistência: `NEXUS_DATA_DIR=/home/container/data`, ou seja, `data/nexus.db` (+ WAL) e
 `data/uploads/` ficam no volume do servidor e sobrevivem a reinstalações da imagem.

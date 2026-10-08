@@ -1,6 +1,6 @@
 import type { Id } from "@nexus/protocol";
 import { callForConversation, conversationTitle, dmPeer, typingUsers } from "@nexus/shared";
-import { useState } from "react";
+import { type DragEvent, useRef, useState } from "react";
 import { calls, useCall } from "../call/callStore";
 import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
@@ -21,6 +21,27 @@ export function ChatView({ conversationId }: { conversationId: Id }) {
   const callsEnabled = useNexus((s) => s.server?.calls_enabled ?? false);
   const myCallConv = useCall((s) => s.conversationId);
   const [replyTo, setReplyTo] = useState<Id | null>(null);
+  const [dropped, setDropped] = useState<File[] | null>(null);
+  const [dragging, setDragging] = useState(false);
+  // dragenter/leave fire for every child; count them to know when we left.
+  const depth = useRef(0);
+  const onDragEnter = (e: DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth.current++;
+    setDragging(true);
+  };
+  const onDragLeave = () => {
+    depth.current = Math.max(0, depth.current - 1);
+    if (depth.current === 0) setDragging(false);
+  };
+  const onDrop = (e: DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth.current = 0;
+    setDragging(false);
+    if (!blocked && e.dataTransfer.files.length) setDropped(Array.from(e.dataTransfer.files));
+  };
   const [showMembers, setShowMembers] = useState(false);
   if (!conv) return null;
 
@@ -83,13 +104,36 @@ export function ChatView({ conversationId }: { conversationId: Id }) {
       )}
 
       <div className="chat-body">
-        <div className="chat-column">
+        <div
+          className="chat-column"
+          onDragEnter={onDragEnter}
+          onDragOver={(e) => {
+            if (hasFiles(e)) e.preventDefault();
+          }}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+        >
+          {dragging && !blocked && (
+            <div className="drop-overlay">
+              <div className="drop-card">
+                <Icon name="paperclip" size={28} />
+                <strong>Solte para enviar</strong>
+                <span>em {title}</span>
+              </div>
+            </div>
+          )}
           <MessageList conversationId={conversationId} onReply={setReplyTo} />
           <TypingIndicator conversationId={conversationId} />
           {blocked ? (
             <div className="composer disabled">Você bloqueou este usuário.</div>
           ) : (
-            <Composer conversationId={conversationId} replyTo={replyTo} onClearReply={() => setReplyTo(null)} />
+            <Composer
+              conversationId={conversationId}
+              replyTo={replyTo}
+              onClearReply={() => setReplyTo(null)}
+              dropped={dropped}
+              onDroppedTaken={() => setDropped(null)}
+            />
           )}
         </div>
         {showMembers && conv.kind === "group" && <GroupMembers conversationId={conversationId} />}
@@ -120,3 +164,7 @@ function TypingIndicator({ conversationId }: { conversationId: Id }) {
   );
 }
 
+
+function hasFiles(e: DragEvent): boolean {
+  return Array.from(e.dataTransfer.types).includes("Files");
+}

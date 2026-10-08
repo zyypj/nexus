@@ -1,7 +1,7 @@
 use axum::{
     Json,
     extract::{Multipart, Path, Query, Request, State},
-    http::{HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
@@ -29,18 +29,41 @@ const SNIFF_BYTES: usize = 64 * 1024;
 /// Pending uploads that were never attached to a message are purged after this.
 pub const PENDING_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
+/// How often (bytes written) the free disk space is re-checked mid-upload.
+const DISK_CHECK_EVERY: u64 = 64 * 1024 * 1024;
+
+/// Free space left on the uploads volume (None if it cannot be read).
+fn free_disk(state: &AppState) -> Option<u64> {
+    fs4::available_space(state.storage.root()).ok()
+}
+
 /// Streams the upload to disk (never buffering the whole file), enforcing
-/// MAX_UPLOAD_SIZE while reading.
+/// MAX_UPLOAD_SIZE (0 = no limit) and keeping UPLOAD_MIN_FREE_DISK free.
 pub async fn upload(
     State(state): State<AppState>,
     user: AuthUser,
     Path(conversation_id): Path<String>,
+    headers: HeaderMap,
     mut multipart: Multipart,
 ) -> ApiResult<(StatusCode, Json<Attachment>)> {
     state.limiter.check("upload", &user.id, rules::UPLOAD)?;
     let kind = require_member(&state.db, &conversation_id, &user.id).await?;
     ensure_dm_not_blocked(&state.db, &conversation_id, kind, &user.id).await?;
-    let max = state.config.max_upload_size;
+    let max = match state.config.max_upload_size {
+        0 => u64::MAX,
+        n => n,
+    };
+    let reserve = state.config.min_free_disk;
+    // Refuse up front when the declared body would not fit.
+    let declared = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+    if let (Some(len), Some(free)) = (declared, free_disk(&state))
+        && free < len.saturating_add(reserve)
+    {
+        return Err(ApiError::InsufficientStorage);
+    }
 
     let mut field = loop {
         match multipart.next_field().await.map_err(|e| ApiError::bad(e.body_text()))? {
@@ -56,10 +79,17 @@ pub async fn upload(
     let mut size: u64 = 0;
     let mut head: Vec<u8> = Vec::with_capacity(4096);
     let result: ApiResult<()> = async {
+        let mut next_check = DISK_CHECK_EVERY;
         while let Some(chunk) = field.chunk().await.map_err(|e| ApiError::bad(e.body_text()))? {
             size += chunk.len() as u64;
             if size > max {
                 return Err(ApiError::PayloadTooLarge);
+            }
+            if size >= next_check {
+                next_check = size + DISK_CHECK_EVERY;
+                if free_disk(&state).is_some_and(|free| free < reserve) {
+                    return Err(ApiError::InsufficientStorage);
+                }
             }
             if head.len() < SNIFF_BYTES {
                 let take = (SNIFF_BYTES - head.len()).min(chunk.len());

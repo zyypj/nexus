@@ -90,6 +90,17 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
 
+## 0.1.2 — anexos sem limite e arrastar arquivos
+
+- `MAX_UPLOAD_SIZE=0` (novo padrão) = sem limite por arquivo; o upload já era em streaming para
+  disco. Proteção: recusa (507) se o disco ficaria com menos de `UPLOAD_MIN_FREE_DISK` (1 GB).
+  Testes novos: `upload_without_limit`, `upload_refused_when_disk_would_fill`.
+- Barra de progresso no envio (XHR com `upload.onprogress`, Windows e Android).
+- Windows: arrastar arquivos para qualquer ponto da conversa (overlay "Solte para enviar");
+  o handler de drop do Tauri foi desligado e drops fora da área não abrem o arquivo no WebView.
+  Testado na cópia de teste com `Input.dispatchDragEvent`: arquivo de 300 MB arrastado, progresso
+  7%→97%, enviado. Arquivo vazio/pasta agora é recusado no app (antes falhava a mensagem toda).
+
 ## Funcionalidades prontas (verificadas)
 
 Servidor (`services/server`): cadastro só com convite (`ALLOW_PUBLIC_REGISTRATION=false`),

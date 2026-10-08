@@ -15,7 +15,11 @@ import { createStore } from "zustand/vanilla";
 import type { GatewayState } from "./gateway";
 
 /** Message as held by the client; `local` marks optimistic sends. */
-export type ClientMessage = Message & { local?: "sending" | "failed" };
+export type ClientMessage = Message & {
+  local?: "sending" | "failed";
+  /** Upload progress of an optimistic message with attachments. */
+  upload?: { file: string; sent: number; total: number };
+};
 
 export interface MessageBucket {
   items: ClientMessage[];

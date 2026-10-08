@@ -49,7 +49,10 @@ pub struct Config {
     pub jwt_secret: Vec<u8>,
     pub livekit: Option<LiveKitConfig>,
     pub allow_public_registration: bool,
+    /// Per-file attachment limit in bytes; 0 = no limit.
     pub max_upload_size: u64,
+    /// Uploads are refused when they would leave less free disk than this.
+    pub min_free_disk: u64,
     pub max_avatar_size: u64,
     pub log_level: String,
     pub invite_prefix: String,
@@ -114,8 +117,10 @@ impl Config {
             livekit,
             allow_public_registration: parse_bool(&env_or("ALLOW_PUBLIC_REGISTRATION", "false"))
                 .context("ALLOW_PUBLIC_REGISTRATION must be true/false")?,
-            max_upload_size: parse_size(&env_or("MAX_UPLOAD_SIZE", "25MB"))
-                .context("MAX_UPLOAD_SIZE must look like 25MB, 500KB or a byte count")?,
+            max_upload_size: parse_upload_limit(&env_or("MAX_UPLOAD_SIZE", "0"))
+                .context("MAX_UPLOAD_SIZE must look like 25MB, 500KB, a byte count or 0 (no limit)")?,
+            min_free_disk: parse_size(&env_or("UPLOAD_MIN_FREE_DISK", "1GB"))
+                .context("UPLOAD_MIN_FREE_DISK must look like 1GB or 500MB")?,
             max_avatar_size: parse_size(&env_or("MAX_AVATAR_SIZE", "4MB")).context("MAX_AVATAR_SIZE is invalid")?,
             log_level: env_or("LOG_LEVEL", "info"),
             invite_prefix: env_or("INVITE_PREFIX", "NEXUS").to_uppercase(),
@@ -183,6 +188,7 @@ impl Config {
             }),
             allow_public_registration: false,
             max_upload_size: 1024 * 1024,
+            min_free_disk: 0,
             max_avatar_size: 256 * 1024,
             log_level: "warn".into(),
             invite_prefix: "NEXUS".into(),
@@ -213,6 +219,14 @@ pub fn parse_bool(value: &str) -> Option<bool> {
 }
 
 /// Accepts `1048576`, `500KB`, `25MB`, `1GB` (binary multiples).
+/// Like `parse_size`, but `0`, `unlimited`, `none` or empty mean no limit (0).
+pub fn parse_upload_limit(value: &str) -> Option<u64> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "" | "0" | "unlimited" | "none" | "off" => Some(0),
+        other => parse_size(other),
+    }
+}
+
 pub fn parse_size(value: &str) -> Option<u64> {
     let v = value.trim().to_ascii_uppercase();
     let (num, mult) = if let Some(n) = v.strip_suffix("GB") {
@@ -239,6 +253,9 @@ mod tests {
         assert_eq!(parse_size("500kb"), Some(500 * 1024));
         assert_eq!(parse_size("1234"), Some(1234));
         assert_eq!(parse_size("abc"), None);
+        assert_eq!(parse_upload_limit("unlimited"), Some(0));
+        assert_eq!(parse_upload_limit("0"), Some(0));
+        assert_eq!(parse_upload_limit("2GB"), Some(2 * 1024 * 1024 * 1024));
     }
 
     #[test]

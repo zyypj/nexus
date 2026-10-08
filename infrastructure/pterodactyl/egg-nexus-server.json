@@ -170,9 +170,19 @@
         },
         {
             "name": "Max upload size",
-            "description": "Per-file limit, e.g. 25MB, 100MB.",
+            "description": "Per-file limit, e.g. 25MB or 2GB. 0 = no limit (files stream to disk, not RAM).",
             "env_variable": "MAX_UPLOAD_SIZE",
-            "default_value": "25MB",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:16",
+            "field_type": "text"
+        },
+        {
+            "name": "Min free disk",
+            "description": "Uploads are refused when they would leave less free disk than this (protects the database).",
+            "env_variable": "UPLOAD_MIN_FREE_DISK",
+            "default_value": "1GB",
             "user_viewable": true,
             "user_editable": true,
             "rules": "required|string|max:16",

@@ -251,8 +251,18 @@ export class NexusClient {
     this.stopTyping(conversationId);
     try {
       const attachmentIds: Id[] = [];
+      let lastUpdate = 0;
       for (const f of opts.files ?? []) {
-        const att = await this.api.uploadAttachment(conversationId, f.file, f.name);
+        const att = await this.api.uploadAttachment(conversationId, f.file, f.name, (sent, total) => {
+          // At most ~8 store updates per second, plus the final one.
+          const now = Date.now();
+          if (now - lastUpdate < 125 && sent < total) return;
+          lastUpdate = now;
+          this.setBucket(conversationId, (b) => ({
+            ...b,
+            items: b.items.map((x) => (x.id === optimistic.id ? { ...x, upload: { file: f.name, sent, total } } : x)),
+          }));
+        });
         attachmentIds.push(att.id);
       }
       const msg = await this.api.sendMessage(conversationId, {

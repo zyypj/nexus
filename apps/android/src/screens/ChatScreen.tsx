@@ -155,6 +155,17 @@ const MessageRow = memo(function MessageRow({
             {m.edited_at ? <Text style={styles.time}> (editada)</Text> : null}
           </Text>
         )}
+        {m.local === 'sending' && m.upload && (
+          <View style={styles.upload}>
+            <Text style={common.muted} numberOfLines={1}>
+              Enviando {m.upload.file} · {Math.floor((m.upload.sent / Math.max(1, m.upload.total)) * 100)}% de{' '}
+              {formatBytes(m.upload.total)}
+            </Text>
+            <View style={styles.uploadTrack}>
+              <View style={[styles.uploadFill, { width: `${(m.upload.sent / Math.max(1, m.upload.total)) * 100}%` }]} />
+            </View>
+          </View>
+        )}
         {m.attachments.map((a) => (
           <AttachmentView key={a.id} a={a} />
         ))}
@@ -363,6 +374,9 @@ function SheetItem({ label, onPress, danger }: { label: string; onPress: () => v
 }
 
 const styles = StyleSheet.create({
+  upload: { marginTop: 6, gap: 4 },
+  uploadTrack: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceHover, overflow: 'hidden' },
+  uploadFill: { height: '100%', backgroundColor: colors.accent },
   joinBar: { backgroundColor: 'rgba(63,185,80,0.18)', padding: space.sm, alignItems: 'center' },
   day: { color: colors.textFaint, textAlign: 'center', fontSize: 12, marginVertical: space.sm },
   message: { flexDirection: 'row', gap: space.sm, paddingHorizontal: space.md, paddingTop: space.sm },

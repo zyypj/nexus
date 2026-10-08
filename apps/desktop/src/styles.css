@@ -1413,3 +1413,62 @@ video.mirror {
 .golive-go:disabled {
   opacity: 0.5;
 }
+
+/* ---------- drag & drop + upload progress ---------- */
+.chat-column {
+  position: relative;
+}
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 12, 16, 0.72);
+  border: 2px dashed var(--c-accent);
+  border-radius: var(--radius-md);
+  margin: var(--space-sm);
+  pointer-events: none;
+}
+.drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-lg) var(--space-xl);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface-raised);
+  color: var(--c-accent);
+}
+.drop-card strong {
+  color: var(--c-text);
+  font-size: var(--fs-lg);
+}
+.drop-card span {
+  color: var(--c-text-muted);
+  font-size: var(--fs-sm);
+}
+.upload-progress {
+  margin-top: 6px;
+  max-width: 420px;
+}
+.upload-progress-text {
+  font-size: var(--fs-xs);
+  color: var(--c-text-muted);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-progress-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--c-surface-hover);
+  overflow: hidden;
+}
+.upload-progress-bar > div {
+  height: 100%;
+  background: var(--c-accent);
+  transition: width 0.15s linear;
+}

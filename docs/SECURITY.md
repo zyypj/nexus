@@ -39,8 +39,12 @@ como, e onde está testado.
 
 ## Uploads
 
-- Limite por arquivo (`MAX_UPLOAD_SIZE`), aplicado **durante** o streaming para disco
-  (o arquivo nunca é bufferizado inteiro em memória); arquivo temporário apagado em erro.
+- Limite por arquivo (`MAX_UPLOAD_SIZE`; padrão `0` = **sem limite**), aplicado **durante** o
+  streaming para disco (o arquivo nunca é bufferizado inteiro em memória, então arquivos de
+  vários GB não pesam na RAM); arquivo temporário apagado em erro.
+- Proteção do disco: o upload é recusado (HTTP 507 `insufficient_storage`) se deixaria menos
+  que `UPLOAD_MIN_FREE_DISK` livre (padrão 1 GB) — conferido pelo `Content-Length` antes de
+  começar e a cada 64 MB gravados. Um disco cheio derrubaria o SQLite.
 - Nome interno: 128 bits aleatórios em hex; validado por regex antes de virar caminho →
   **path traversal impossível por construção**. O nome original só é usado para exibição e
   `Content-Disposition` (sanitizado).

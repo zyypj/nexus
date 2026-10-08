@@ -318,10 +318,55 @@ export class ApiClient {
       `/api/conversations/${id}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
     );
   }
-  uploadAttachment(id: Id, file: UploadSource, fileName: string): Promise<Attachment> {
+  uploadAttachment(
+    id: Id,
+    file: UploadSource,
+    fileName: string,
+    onProgress?: (sent: number, total: number) => void,
+  ): Promise<Attachment> {
     const form = new FormData();
     appendFile(form, file, fileName);
-    return this.request("POST", `/api/conversations/${id}/attachments`, form);
+    const path = `/api/conversations/${id}/attachments`;
+    // fetch() has no upload progress; XHR does (browsers and React Native).
+    if (onProgress && typeof XMLHttpRequest !== "undefined") return this.xhrUpload(path, form, onProgress);
+    return this.request("POST", path, form);
+  }
+
+  private async xhrUpload<T>(
+    path: string,
+    form: FormData,
+    onProgress: (sent: number, total: number) => void,
+    retry = true,
+  ): Promise<T> {
+    const token = await this.getAccessToken();
+    const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${this.baseUrl}${path}`);
+      if (token) xhr.setRequestHeader("authorization", `Bearer ${token}`);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(e.loaded, e.total);
+      };
+      xhr.onload = () => resolve({ status: xhr.status, body: xhr.responseText });
+      xhr.onerror = () => reject(new ApiError(0, "network_error", "Falha de rede durante o envio."));
+      xhr.send(form);
+    });
+    if (res.status === 401 && retry && token) {
+      this.accessExpiresAt = 0;
+      if (await this.refresh()) return this.xhrUpload<T>(path, form, onProgress, false);
+    }
+    if (res.status < 200 || res.status >= 300) {
+      let code = "http_error";
+      let message = `HTTP ${res.status}`;
+      try {
+        const err = JSON.parse(res.body) as ApiErrorBody;
+        code = err.error.code;
+        message = err.error.message;
+      } catch {
+        // non-JSON error body
+      }
+      throw new ApiError(res.status, code, message);
+    }
+    return JSON.parse(res.body) as T;
   }
 
   // ---- calls ----

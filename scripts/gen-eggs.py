@@ -151,7 +151,20 @@ nexus = {
             "true lets anyone sign up without an invite code.",
             "required|string|in:true,false",
         ),
-        var("Max upload size", "MAX_UPLOAD_SIZE", "25MB", "Per-file limit, e.g. 25MB, 100MB.", "required|string|max:16"),
+        var(
+            "Max upload size",
+            "MAX_UPLOAD_SIZE",
+            "0",
+            "Per-file limit, e.g. 25MB or 2GB. 0 = no limit (files stream to disk, not RAM).",
+            "required|string|max:16",
+        ),
+        var(
+            "Min free disk",
+            "UPLOAD_MIN_FREE_DISK",
+            "1GB",
+            "Uploads are refused when they would leave less free disk than this (protects the database).",
+            "required|string|max:16",
+        ),
         var("Log level", "LOG_LEVEL", "info", "error, warn, info, debug or trace.", "required|string|in:error,warn,info,debug,trace"),
         var(
             "Trust proxy",

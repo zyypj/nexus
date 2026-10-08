@@ -13,6 +13,7 @@ axum = { version = "0.8", features = ["ws", "multipart", "macros"] }
 axum-server = { version = "0.8", default-features = false, features = ["tls-rustls-no-provider"] }
 base64 = "0.23"
 clap = { version = "4", features = ["derive", "env"] }
+fs4 = "1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 hex = "0.4"
 hmac = "0.13"

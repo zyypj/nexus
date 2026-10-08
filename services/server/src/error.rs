@@ -21,6 +21,8 @@ pub enum ApiError {
     Conflict(&'static str),
     #[error("file too large")]
     PayloadTooLarge,
+    #[error("not enough free disk space on the server")]
+    InsufficientStorage,
     #[error("unsupported file type")]
     UnsupportedMedia,
     #[error("too many requests")]
@@ -45,6 +47,7 @@ impl ApiError {
             Self::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
             Self::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
             Self::PayloadTooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"),
+            Self::InsufficientStorage => (StatusCode::INSUFFICIENT_STORAGE, "insufficient_storage"),
             Self::UnsupportedMedia => (StatusCode::UNSUPPORTED_MEDIA_TYPE, "unsupported_media"),
             Self::RateLimited { .. } => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
             Self::Unavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),

@@ -1,6 +1,6 @@
 import { MAX_ATTACHMENTS, MAX_MESSAGE_LENGTH, type Id } from "@nexus/protocol";
 import { formatBytes } from "@nexus/shared";
-import { type ClipboardEvent, type DragEvent, useEffect, useRef, useState } from "react";
+import { type ClipboardEvent, useEffect, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import { client, useNexus } from "../lib/nexus";
 
@@ -8,16 +8,27 @@ interface Props {
   conversationId: Id;
   replyTo: Id | null;
   onClearReply: () => void;
+  /** Files dropped anywhere on the conversation (ChatView). */
+  dropped?: File[] | null;
+  onDroppedTaken?: () => void;
 }
 
-export function Composer({ conversationId, replyTo, onClearReply }: Props) {
+/** Server error codes worth a clearer message than the raw API text. */
+function sendError(e: unknown): string {
+  const code = (e as { code?: string }).code;
+  if (code === "insufficient_storage") return "O servidor está sem espaço em disco para este arquivo.";
+  if (code === "payload_too_large") return "Arquivo maior que o limite configurado no servidor.";
+  return (e as Error).message;
+}
+
+export function Composer({ conversationId, replyTo, onClearReply, dropped, onDroppedTaken }: Props) {
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const maxUpload = useNexus((s) => s.server?.max_upload_size ?? 25 * 1024 * 1024);
+  // 0 = no limit (default since 0.1.2).
+  const maxUpload = useNexus((s) => s.server?.max_upload_size ?? 0);
   const reply = useNexus((s) =>
     replyTo ? s.messages[conversationId]?.items.find((m) => m.id === replyTo) : undefined,
   );
@@ -47,7 +58,13 @@ export function Composer({ conversationId, replyTo, onClearReply }: Props) {
     setError(null);
     const next = [...files];
     for (const f of Array.from(list)) {
-      if (f.size > maxUpload) {
+      if (f.size === 0) {
+        // Folders and empty files: the server rejects them and the whole
+        // message would fail.
+        setError(`${f.name} está vazio (ou é uma pasta) e não pode ser enviado.`);
+        continue;
+      }
+      if (maxUpload > 0 && f.size > maxUpload) {
         setError(`${f.name} é maior que o limite de ${formatBytes(maxUpload)}.`);
         continue;
       }
@@ -77,9 +94,17 @@ export function Composer({ conversationId, replyTo, onClearReply }: Props) {
         files: toSend.map((f) => ({ file: f, name: f.name })),
       });
     } catch (e) {
-      setError((e as Error).message);
+      setError(sendError(e));
     }
   }
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: addFiles reads the latest state on purpose
+  useEffect(() => {
+    if (!dropped?.length) return;
+    addFiles(dropped);
+    onDroppedTaken?.();
+    ref.current?.focus();
+  }, [dropped]);
 
   const onPaste = (e: ClipboardEvent) => {
     if (e.clipboardData.files.length > 0) {
@@ -87,22 +112,8 @@ export function Composer({ conversationId, replyTo, onClearReply }: Props) {
       addFiles(e.clipboardData.files);
     }
   };
-  const onDrop = (e: DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
-  };
-
   return (
-    <div
-      className={`composer${dragging ? " dragging" : ""}`}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragging(true);
-      }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={onDrop}
-    >
+    <div className="composer">
       {reply && (
         <div className="composer-reply">
           <Icon name="reply" size={14} />

@@ -473,6 +473,49 @@ async fn upload_size_limit() {
 }
 
 #[tokio::test]
+async fn upload_without_limit() {
+    // 0 = no size limit: a file far above the default test limit goes through.
+    let s = TestServer::start_with(|c| c.max_upload_size = 0).await;
+    let a = s.register("semlimite").await;
+    let b = s.register("outro").await;
+    let dm = s.dm(&a, &b).await;
+    let (status, att) = a
+        .upload(
+            &format!("/api/conversations/{dm}/attachments"),
+            "video.mp4",
+            vec![1u8; 3 * 1024 * 1024],
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(att["size"], 3 * 1024 * 1024);
+}
+
+#[tokio::test]
+async fn upload_refused_when_disk_would_fill() {
+    // Asking for more free space than any disk has: every upload is refused
+    // and nothing is left behind in tmp/.
+    let s = TestServer::start_with(|c| {
+        c.max_upload_size = 0;
+        c.min_free_disk = u64::MAX / 2;
+    })
+    .await;
+    let a = s.register("discocheio").await;
+    let b = s.register("vizinho").await;
+    let dm = s.dm(&a, &b).await;
+    let (status, body) = a
+        .upload(
+            &format!("/api/conversations/{dm}/attachments"),
+            "x.bin",
+            vec![1u8; 1000],
+        )
+        .await;
+    assert_eq!(status, StatusCode::INSUFFICIENT_STORAGE);
+    assert_eq!(body["error"]["code"], "insufficient_storage");
+    let tmp = std::fs::read_dir(s.state.storage.root().join("tmp")).unwrap().count();
+    assert_eq!(tmp, 0);
+}
+
+#[tokio::test]
 async fn avatar_upload_and_profile_update() {
     let s = TestServer::start().await;
     let a = s.register("perfil").await;

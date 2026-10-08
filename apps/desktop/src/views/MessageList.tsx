@@ -169,6 +169,17 @@ const MessageItem = memo(function MessageItem({
             ))}
           </div>
         )}
+        {m.local === "sending" && m.upload && (
+          <div className="upload-progress">
+            <div className="upload-progress-text">
+              Enviando {m.upload.file} · {Math.floor((m.upload.sent / Math.max(1, m.upload.total)) * 100)}% de{" "}
+              {formatBytes(m.upload.total)}
+            </div>
+            <div className="upload-progress-bar">
+              <div style={{ width: `${(m.upload.sent / Math.max(1, m.upload.total)) * 100}%` }} />
+            </div>
+          </div>
+        )}
         {m.local === "failed" && (
           <div className="failed">
             Falha ao enviar.{" "}

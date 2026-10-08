@@ -34,7 +34,12 @@ const TAURI_ORIGINS: [&str; 4] = [
 ];
 
 pub fn router(state: AppState) -> Router {
-    let upload_limit = DefaultBodyLimit::max(state.config.max_upload_size as usize + 64 * 1024);
+    // Attachments stream to disk, so "no limit" is safe memory-wise; the disk
+    // itself is protected by UPLOAD_MIN_FREE_DISK in the handler.
+    let upload_limit = match state.config.max_upload_size {
+        0 => DefaultBodyLimit::disable(),
+        max => DefaultBodyLimit::max((max as usize).saturating_add(64 * 1024)),
+    };
     let avatar_limit = DefaultBodyLimit::max(state.config.max_avatar_size as usize + 64 * 1024);
 
     let api = Router::new()
