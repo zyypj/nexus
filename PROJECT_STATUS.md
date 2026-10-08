@@ -90,6 +90,14 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
 
+## 0.1.5 — logo nova
+
+- Logo enviada pelo usuário: símbolo "N" recortado com fundo transparente (alpha pela distância
+  ao fundo + des-pré-multiplicação, sem halo). Ícones do Windows (exe, bandeja, instalador; .ico
+  16–256 px via `tauri icon`), ícones do Android (quadrado e redondo sobre o azul-escuro da logo,
+  mdpi–xxxhdpi) e a logo no login / telas de atualização dos dois apps. A cor de destaque da
+  interface continua a anterior (não alterada).
+
 ## 0.1.3 / 0.1.4 — atualização obrigatória, vídeo/áudio no chat, mensagens de voz
 
 - 0.1.3: atualização **obrigatória ao abrir** (Windows: tela "Atualizando para o Nexus X",
