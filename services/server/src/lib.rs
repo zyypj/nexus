@@ -77,6 +77,9 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     let state = AppState::new(config, db).await?;
     end_stale_calls(&state).await?;
     spawn_maintenance(state.clone());
+    if std::env::var_os("NEXUS_DISABLE_CONSOLE").is_none() {
+        admin_cli::spawn_console(state.db.clone());
+    }
 
     tracing::info!(
         %addr,

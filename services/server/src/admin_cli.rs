@@ -2,7 +2,7 @@
 //! they work while the server is running (SQLite WAL allows concurrent access)
 //! and do not need JWT/LiveKit secrets.
 
-use clap::Subcommand;
+use clap::{Parser, Subcommand};
 
 use crate::{config::StorageConfig, db, invites, routes::admin};
 
@@ -87,15 +87,64 @@ async fn user_id_by_name(pool: &db::Db, username: &str) -> anyhow::Result<String
         .ok_or_else(|| anyhow::anyhow!("user '{username}' not found"))
 }
 
-pub async fn run(cmd: AdminCommand) -> anyhow::Result<()> {
-    let storage = StorageConfig::from_env();
-    let pool = db::connect(&storage.database_path).await?;
-    let prefix = std::env::var("INVITE_PREFIX")
+fn invite_prefix() -> String {
+    std::env::var("INVITE_PREFIX")
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "NEXUS".into())
-        .to_uppercase();
+        .to_uppercase()
+}
 
+pub async fn run(cmd: AdminCommand) -> anyhow::Result<()> {
+    let storage = StorageConfig::from_env();
+    let pool = db::connect(&storage.database_path).await?;
+    let result = execute(&pool, cmd).await;
+    pool.close().await;
+    result
+}
+
+/// Line typed into the server console (Pterodactyl sends console input to stdin).
+#[derive(Parser, Debug)]
+#[command(no_binary_name = true, name = "", disable_version_flag = true)]
+struct ConsoleLine {
+    #[command(subcommand)]
+    cmd: AdminCommand,
+}
+
+/// Reads admin commands from stdin while the server runs, e.g.
+/// `invite create --max-uses 1` or `user list` typed in the panel console.
+pub fn spawn_console(pool: db::Db) {
+    tokio::spawn(async move {
+        use tokio::io::AsyncBufReadExt;
+        let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            match words.first() {
+                None => continue,
+                Some(&"help") => {
+                    println!(
+                        "comandos: invite create [--max-uses N] [--expires-in 7d] | invite list | invite revoke CODE
+          user list | user disable NOME | user enable NOME | user promote NOME | user demote NOME"
+                    );
+                    continue;
+                }
+                _ => {}
+            }
+            match ConsoleLine::try_parse_from(&words) {
+                Ok(parsed) => {
+                    if let Err(e) = execute(&pool, parsed.cmd).await {
+                        println!("erro: {e}");
+                    }
+                }
+                Err(e) => println!("{}", e.render()),
+            }
+        }
+    });
+}
+
+async fn execute(pool: &db::Db, cmd: AdminCommand) -> anyhow::Result<()> {
+    let pool = pool.clone();
+    let prefix = invite_prefix();
     match cmd {
         AdminCommand::Invite { cmd } => match cmd {
             InviteCommand::Create { max_uses, expires_in } => {
@@ -200,7 +249,6 @@ pub async fn run(cmd: AdminCommand) -> anyhow::Result<()> {
             }
         },
     }
-    pool.close().await;
     Ok(())
 }
 
