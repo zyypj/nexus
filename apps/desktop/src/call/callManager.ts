@@ -17,7 +17,7 @@ import {
 import { client } from "../lib/nexus";
 import { type ScreenQuality, settings, useSettings } from "../lib/settings";
 import { type ParticipantView, idleCall as idle, setCallUi as setUi, useCall } from "./callStore";
-import { resumeAudio, sharedAudioContext, suspendAudio } from "./audioContext";
+import { releaseAudio, resumeAudio, sharedAudioContext } from "./audioContext";
 import { RnnoiseProcessor } from "./noise";
 import { type Limitation, QualityGovernor, type QualityPreset, autoStart, preset } from "./screenQuality";
 import { type CaptureMode, SystemAudioCapture } from "./systemAudio";
@@ -138,7 +138,7 @@ export class CallManager {
     this.rnnoise = null;
     this.governor = null;
     if (resetUi) setUi({ ...idle, muted: this.wantMuted, deafened: useCall.getState().deafened });
-    void suspendAudio();
+    void releaseAudio();
   }
 
   private wire(room: Room) {

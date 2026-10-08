@@ -149,7 +149,8 @@ fn one_pole_lowpass(x: &mut [f32], cutoff: f32) {
     }
 }
 
-/// Pink noise (Paul Kellet's filter).
+/// Pink noise (Paul Kellet's filter; coefficients kept as published).
+#[allow(clippy::excessive_precision)]
 pub fn pink(n: usize, rng: &mut Rng) -> Vec<f32> {
     let (mut b0, mut b1, mut b2, mut b3, mut b4, mut b5, mut b6) = (0.0f32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     (0..n)
@@ -246,7 +247,7 @@ pub fn mouse(n: usize, seed: u64) -> Vec<f32> {
     let mut x = vec![0.0f32; n];
     let mut i = (0.3 * SR as f32) as usize;
     while i < n {
-        if rng.next_u64() % 3 == 0 {
+        if rng.next_u64().is_multiple_of(3) {
             // Scroll: a run of soft ticks.
             for _ in 0..(6 + rng.next_u64() % 10) {
                 add_click(&mut x, i, 0.25, 1.0, 5000.0, &mut rng);

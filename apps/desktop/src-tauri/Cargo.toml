@@ -21,6 +21,9 @@ tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 
+[dev-dependencies]
+anyhow = "1"
+
 [target.'cfg(windows)'.dependencies]
 windows-core = "0.62"
 windows = { version = "0.62", features = [

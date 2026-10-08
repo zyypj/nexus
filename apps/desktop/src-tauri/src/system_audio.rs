@@ -73,7 +73,6 @@ mod imp {
             System::{
                 Com::{
                     BLOB, CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
-                    IAgileObject, IAgileObject_Impl,
                     StructuredStorage::{PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0},
                 },
                 Diagnostics::ToolHelp::{
@@ -108,12 +107,14 @@ mod imp {
             supported,
             build,
             reason: (!supported).then(|| {
-                format!("Compartilhar áudio requer Windows 11 ou Windows 10 build {MIN_BUILD}+ (este é o build {build}).")
+                format!(
+                    "Compartilhar áudio requer Windows 11 ou Windows 10 build {MIN_BUILD}+ (este é o build {build})."
+                )
             }),
         }
     }
 
-    #[implement(IActivateAudioInterfaceCompletionHandler, IAgileObject)]
+    #[implement(IActivateAudioInterfaceCompletionHandler)]
     struct Completion {
         done: Mutex<Option<mpsc::SyncSender<()>>>,
     }
@@ -128,8 +129,6 @@ mod imp {
             Ok(())
         }
     }
-
-    impl IAgileObject_Impl for Completion_Impl {}
 
     fn activate(mode: &CaptureMode) -> Result<IAudioClient, String> {
         let (target, loopback_mode) = match mode {
@@ -148,7 +147,10 @@ mod imp {
                 },
             },
         };
-        let prop = PROPVARIANT {
+        // The blob points at `params` on this stack frame. PROPVARIANT's drop
+        // would run PropVariantClear and CoTaskMemFree that pointer (heap
+        // corruption), so it must never be dropped.
+        let prop = std::mem::ManuallyDrop::new(PROPVARIANT {
             Anonymous: PROPVARIANT_0 {
                 Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
                     vt: VT_BLOB,
@@ -163,7 +165,7 @@ mod imp {
                     },
                 }),
             },
-        };
+        });
 
         let (tx, rx) = mpsc::sync_channel(1);
         let handler: IActivateAudioInterfaceCompletionHandler = Completion {
@@ -174,7 +176,7 @@ mod imp {
             ActivateAudioInterfaceAsync(
                 VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
                 &IAudioClient::IID,
-                Some(&prop),
+                Some(&*prop),
                 &handler,
             )
         }
@@ -185,7 +187,8 @@ mod imp {
         let mut hr = windows::core::HRESULT(0);
         let mut unknown = None;
         unsafe { op.GetActivateResult(&mut hr, &mut unknown) }.map_err(|e| format!("GetActivateResult: {e}"))?;
-        hr.ok().map_err(|e| format!("process loopback activation failed: {e}"))?;
+        hr.ok()
+            .map_err(|e| format!("process loopback activation failed: {e}"))?;
         unknown
             .ok_or("no audio interface returned")?
             .cast::<IAudioClient>()
@@ -394,16 +397,24 @@ mod imp {
             let excluded = own_process_tree();
             let mut out: Vec<AudioApp> = Vec::new();
             for i in 0..count {
-                let Ok(control) = (unsafe { sessions.GetSession(i) }) else { continue };
-                let Ok(control2) = control.cast::<IAudioSessionControl2>() else { continue };
+                let Ok(control) = (unsafe { sessions.GetSession(i) }) else {
+                    continue;
+                };
+                let Ok(control2) = control.cast::<IAudioSessionControl2>() else {
+                    continue;
+                };
                 if unsafe { control2.IsSystemSoundsSession() }.0 == 0 {
                     continue; // S_OK means "system sounds"
                 }
-                let Ok(state) = (unsafe { control2.GetState() }) else { continue };
+                let Ok(state) = (unsafe { control2.GetState() }) else {
+                    continue;
+                };
                 if state == AudioSessionStateExpired {
                     continue;
                 }
-                let Ok(pid) = (unsafe { control2.GetProcessId() }) else { continue };
+                let Ok(pid) = (unsafe { control2.GetProcessId() }) else {
+                    continue;
+                };
                 if pid == 0 || excluded.contains(&pid) {
                     continue;
                 }
@@ -416,7 +427,11 @@ mod imp {
                     out.push(AudioApp { pid, name, active });
                 }
             }
-            out.sort_by(|a, b| b.active.cmp(&a.active).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+            out.sort_by(|a, b| {
+                b.active
+                    .cmp(&a.active)
+                    .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            });
             Ok(out)
         })();
         if initialized {
@@ -425,6 +440,10 @@ mod imp {
         result
     }
 }
+
+/// Native entry points, also used by `examples/loopback_probe.rs`.
+#[cfg(windows)]
+pub use imp::{Running, apps as audio_apps, start as start_capture, support};
 
 #[cfg(windows)]
 static RUNNING: std::sync::Mutex<Option<imp::Running>> = std::sync::Mutex::new(None);

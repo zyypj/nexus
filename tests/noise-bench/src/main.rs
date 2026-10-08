@@ -95,6 +95,12 @@ pub struct VadGate {
     pub threshold: f32,
 }
 
+impl Default for VadGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VadGate {
     pub fn new() -> Self {
         Self {
@@ -119,7 +125,11 @@ impl VadGate {
         let n = frame.len() as f32;
         let start = self.gain;
         // Fast attack (1 frame), slower release (~5 frames).
-        let end = if target > start { target } else { start + (target - start) * 0.2 };
+        let end = if target > start {
+            target
+        } else {
+            start + (target - start) * 0.2
+        };
         for (k, v) in frame.iter_mut().enumerate() {
             *v *= start + (end - start) * (k as f32 / n);
         }
@@ -181,7 +191,9 @@ fn read_wav(path: &Path) -> anyhow::Result<Vec<f32>> {
         hound::SampleFormat::Float => r.samples::<f32>().collect::<Result<_, _>>()?,
         hound::SampleFormat::Int => {
             let scale = (1i64 << (spec.bits_per_sample - 1)) as f32;
-            r.samples::<i32>().map(|s| s.map(|v| v as f32 / scale)).collect::<Result<_, _>>()?
+            r.samples::<i32>()
+                .map(|s| s.map(|v| v as f32 / scale))
+                .collect::<Result<_, _>>()?
         }
     };
     let ch = spec.channels as usize;
@@ -308,10 +320,8 @@ fn main() -> anyhow::Result<()> {
             let m = out.len();
             let clean = &voice[..m];
             let noisy_aligned = &noisy[..m];
-            let (pause_in, pause_out): (Vec<f32>, Vec<f32>) = (0..m)
-                .filter(|&i| !vad[i])
-                .map(|i| (noisy_aligned[i], out[i]))
-                .unzip();
+            let (pause_in, pause_out): (Vec<f32>, Vec<f32>) =
+                (0..m).filter(|&i| !vad[i]).map(|i| (noisy_aligned[i], out[i])).unzip();
             let (talk_clean, talk_out): (Vec<f32>, Vec<f32>) =
                 (0..m).filter(|&i| vad[i]).map(|i| (clean[i], out[i])).unzip();
             let si_in = si_sdr(noisy_aligned, clean);
@@ -345,7 +355,10 @@ fn main() -> anyhow::Result<()> {
         "Latency added by the algorithm: {measured_delay} samples = {:.1} ms (plus up to 10 ms of frame buffering in the AudioWorklet)",
         measured_delay as f32 * 1000.0 / SR as f32
     );
-    println!("Memory per denoiser instance: {:.1} KiB of heap", state_bytes as f64 / 1024.0);
+    println!(
+        "Memory per denoiser instance: {:.1} KiB of heap",
+        state_bytes as f64 / 1024.0
+    );
     println!("\nWAV files for listening were written to {}", out_dir.display());
     Ok(())
 }

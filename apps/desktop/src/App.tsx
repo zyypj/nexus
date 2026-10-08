@@ -22,6 +22,14 @@ export function App() {
       .catch(() => useSession.getState().setPhase("login"));
   }, []);
 
+  // Time-to-interactive for the benchmark tool: first frame after the
+  // session was restored (or the login screen is shown).
+  const booted = phase !== "boot";
+  useEffect(() => {
+    if (!booted || !isTauri) return;
+    requestAnimationFrame(() => setTimeout(() => void invoke("app_ready").catch(() => undefined), 0));
+  }, [booted]);
+
   // Keep native-side settings in sync.
   const closeToTray = useSettings((s) => s.closeToTray);
   const hotkeys = useSettings((s) => s.hotkeys);

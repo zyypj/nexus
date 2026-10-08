@@ -72,8 +72,31 @@ Não exige VB-Cable, VoiceMeeter nem driver.
 (qualquer Windows 11). No Windows 10 22H2 (build 19045) a opção aparece desabilitada com a
 explicação — capturar a saída inteira causaria o eco que o requisito proíbe.
 
-O estado da verificação ponta a ponta (com áudio real tocando) está em
-[PROJECT_STATUS.md](../PROJECT_STATUS.md).
+### Verificação automatizada (hardware real)
+
+`apps/desktop/src-tauri/examples/loopback_probe.rs` toca um tom de 660 Hz em processos reais e
+mede, só nessa frequência (Goertzel, imune a outros sons do PC), o que a captura recebe:
+
+```bash
+cd apps/desktop/src-tauri
+cargo run --release --example loopback_probe
+```
+
+Resultado nesta máquina (Windows 11 build 26300, 7 out 2026):
+
+| Caso | Nível do tom capturado | Esperado |
+|---|---|---|
+| nada nosso tocando | −140 dBFS | referência |
+| tom num processo **filho**, modo "só este app" | **−12,9 dBFS** | capturado ✅ |
+| tom num processo **filho**, modo "áudio do computador" | **−140 dBFS** | excluído ✅ |
+| tom num processo **fora da árvore** (criado via WMI), modo "áudio do computador" | **−12,9 dBFS** | capturado ✅ |
+
+Os processos do WebView2 que tocam as vozes da call são descendentes do `nexus-desktop.exe`
+(confirmado listando a árvore de processos), portanto caem no caso "filho → excluído".
+
+Esse teste encontrou um bug real: o `PROPVARIANT` com o blob de ativação apontando para a pilha
+era destruído com `PropVariantClear`, causando corrupção de heap. Corrigido (o `PROPVARIANT`
+nunca é liberado, pois não é dono da memória).
 
 ## Android
 

@@ -12,9 +12,14 @@ export function sharedAudioContext(): AudioContext {
   return ctx;
 }
 
-/** Suspends the context when no call is active so the audio thread sleeps. */
-export async function suspendAudio(): Promise<void> {
-  if (ctx && ctx.state === "running") await ctx.suspend();
+/**
+ * Closes the context after a call: frees the audio thread, worklets (RNNoise
+ * WASM) and LiveKit's mix graph instead of keeping them suspended in memory.
+ */
+export async function releaseAudio(): Promise<void> {
+  const c = ctx;
+  ctx = null;
+  if (c && c.state !== "closed") await c.close();
 }
 
 export async function resumeAudio(): Promise<void> {

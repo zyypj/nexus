@@ -1,6 +1,6 @@
 mod hotkeys;
 mod secrets;
-mod system_audio;
+pub mod system_audio;
 
 use std::{
     sync::{
