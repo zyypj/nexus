@@ -7,6 +7,7 @@ import { Icon } from "../components/Icon";
 import { client, useNexus } from "../lib/nexus";
 import { CallStrip } from "./CallStrip";
 import { CreateGroupDialog } from "./CreateGroupDialog";
+import { UpdateBanner } from "./UpdateBanner";
 import { UserBar } from "./UserBar";
 
 export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
@@ -48,6 +49,7 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
           <ConversationItem key={c.id} conversation={c} active={c.id === active} />
         ))}
       </nav>
+      <UpdateBanner />
       <CallStrip />
       <UserBar onOpenSettings={onOpenSettings} />
       {creating && <CreateGroupDialog onClose={() => setCreating(false)} />}

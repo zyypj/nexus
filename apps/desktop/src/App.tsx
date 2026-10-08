@@ -4,6 +4,7 @@ import { calls, useCall } from "./call/callStore";
 import { createClient, useNexus, useSession } from "./lib/nexus";
 import { invoke, isTauri, setBadge } from "./lib/platform";
 import { useSettings } from "./lib/settings";
+import { startUpdateChecks } from "./lib/updater";
 import { AppShell } from "./views/AppShell";
 import { LoginView } from "./views/LoginView";
 
@@ -42,6 +43,10 @@ export function App() {
         bindings: hotkeys.map(({ action, code, ctrl, alt, shift }) => ({ action, code, ctrl, alt, shift })),
       });
   }, [hotkeys]);
+
+  useEffect(() => {
+    if (phase === "app") startUpdateChecks();
+  }, [phase]);
 
   if (phase === "boot") return <div className="splash" />;
   if (phase === "login") return <LoginView />;

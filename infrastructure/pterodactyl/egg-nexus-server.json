@@ -7,13 +7,13 @@
     "exported_at": "2026-10-07T00:00:00+00:00",
     "name": "Nexus Server",
     "author": "admin@nexus.local",
-    "description": "Nexus API + WebSocket gateway + SQLite + uploads (single Rust binary). Data persists in /home/container/data.",
+    "description": "Nexus API + WebSocket gateway + SQLite + uploads (single Rust binary). Downloads and auto-updates itself from GitHub Releases. Data persists in /home/container/data.",
     "features": null,
     "docker_images": {
-        "Nexus Server (GHCR)": "ghcr.io/OWNER/nexus-server:latest"
+        "Debian (Pterodactyl yolk)": "ghcr.io/parkervcp/yolks:debian"
     },
     "file_denylist": [],
-    "startup": "nexus-server serve",
+    "startup": "bash ./nexus-start.sh",
     "config": {
         "files": "{}",
         "startup": "{\"done\": \"server listening\"}",
@@ -22,12 +22,42 @@
     },
     "scripts": {
         "installation": {
-            "script": "#!/bin/bash\n# The Nexus binary lives in the Docker image; installation only prepares the\n# persistent data directory inside the server volume (/home/container).\nmkdir -p /mnt/server/data/uploads\necho \"Nexus data directory ready: /home/container/data (database + uploads)\"\n",
-            "container": "debian:trixie-slim",
+            "script": "#!/bin/bash\n# Downloads the launcher (nexus-start.sh) from the GitHub release. The launcher\n# itself downloads/updates the nexus-server binary on every start.\nset -e\ncd /mnt/server\nREPO=\"${GITHUB_REPO:-zyypj/nexus}\"\nVERSION=\"${NEXUS_VERSION:-latest}\"\nif [ \"$VERSION\" = \"latest\" ]; then\n  URL=\"https://github.com/${REPO}/releases/latest/download/nexus-start.sh\"\nelse\n  URL=\"https://github.com/${REPO}/releases/download/v${VERSION#v}/nexus-start.sh\"\nfi\necho \"Downloading ${URL}\"\ncurl -fsSL -o nexus-start.sh \"$URL\"\nchmod +x nexus-start.sh\nmkdir -p data/uploads\nrm -f .nexus-version\necho \"Installed. The server binary is downloaded on first start.\"\n",
+            "container": "ghcr.io/parkervcp/installers:debian",
             "entrypoint": "bash"
         }
     },
     "variables": [
+        {
+            "name": "GitHub repository",
+            "description": "owner/repo whose GitHub Releases provide the server binary.",
+            "env_variable": "GITHUB_REPO",
+            "default_value": "zyypj/nexus",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:100",
+            "field_type": "text"
+        },
+        {
+            "name": "Version",
+            "description": "latest = always the newest release; or pin a version such as 0.2.0.",
+            "env_variable": "NEXUS_VERSION",
+            "default_value": "latest",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:32",
+            "field_type": "text"
+        },
+        {
+            "name": "Auto update",
+            "description": "1 = check GitHub on every start and install new releases (checksum verified). 0 = never.",
+            "env_variable": "AUTO_UPDATE",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:0,1",
+            "field_type": "text"
+        },
         {
             "name": "App name",
             "description": "Name shown to clients.",

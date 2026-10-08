@@ -6,6 +6,9 @@ import { Modal } from "../components/Modal";
 import { client, useNexus, useSession } from "../lib/nexus";
 import { invoke, isTauri, listen } from "../lib/platform";
 import { type HotkeyAction, type HotkeyBinding, type NoiseMode, useSettings } from "../lib/settings";
+import { checkForUpdates, useUpdater } from "../lib/updater";
+
+const APP_VERSION = __APP_VERSION__;
 
 type Tab = "account" | "voice" | "hotkeys" | "app";
 
@@ -371,6 +374,22 @@ function Hotkeys() {
   );
 }
 
+function UpdateNow() {
+  const { status, version } = useUpdater();
+  return (
+    <div className="hotkey-row">
+      <span className="hint">
+        Versão {APP_VERSION}
+        {status === "checking" && " · procurando atualizações…"}
+        {version && status !== "idle" && ` · nova versão ${version}`}
+      </span>
+      <button type="button" className="btn small" onClick={() => void checkForUpdates()}>
+        Procurar atualizações
+      </button>
+    </div>
+  );
+}
+
 function AppSettings() {
   const s = useSettings();
   return (
@@ -383,6 +402,11 @@ function AppSettings() {
         <input type="checkbox" checked={s.notifications} onChange={(e) => s.set({ notifications: e.target.checked })} />
         Notificações de novas mensagens
       </label>
+      <label className="check">
+        <input type="checkbox" checked={s.autoUpdate} onChange={(e) => s.set({ autoUpdate: e.target.checked })} />
+        Baixar atualizações automaticamente (GitHub)
+      </label>
+      <UpdateNow />
       <p className="hint">Servidor: {s.serverUrl}</p>
     </div>
   );

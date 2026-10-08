@@ -43,6 +43,12 @@ npm run desktop:dev
 
 Convite manual: `cargo run -p nexus-server -- admin invite create`.
 
+## Releases e atualizações automáticas
+
+`node scripts/release.mjs 0.2.0 && git push origin HEAD v0.2.0` publica uma GitHub Release com
+servidor, instalador Windows e APK. Servidor (Pterodactyl), app Windows e app Android se
+atualizam sozinhos a partir dela — ver [docs/UPDATES.md](docs/UPDATES.md).
+
 ## Produção
 
 - Servidor e LiveKit no **Pterodactyl**: [docs/PTERODACTYL.md](docs/PTERODACTYL.md)
@@ -71,5 +77,5 @@ CI: `.github/workflows/ci.yml` (servidor, TypeScript, app Windows, APK Android) 
 [Arquitetura](docs/ARCHITECTURE.md) · [Windows](docs/WINDOWS.md) · [Android](docs/ANDROID.md) ·
 [Áudio](docs/AUDIO.md) · [Compartilhamento de tela](docs/SCREEN_SHARE.md) ·
 [LiveKit](docs/LIVEKIT.md) · [Pterodactyl](docs/PTERODACTYL.md) ·
-[Benchmarks](docs/BENCHMARKS.md) · [Segurança](docs/SECURITY.md) ·
+[Benchmarks](docs/BENCHMARKS.md) · [Segurança](docs/SECURITY.md) · [Atualizações](docs/UPDATES.md) ·
 [Status do projeto](PROJECT_STATUS.md)

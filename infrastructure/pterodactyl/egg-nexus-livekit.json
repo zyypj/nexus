@@ -7,13 +7,13 @@
     "exported_at": "2026-10-07T00:00:00+00:00",
     "name": "Nexus LiveKit",
     "author": "admin@nexus.local",
-    "description": "Self-hosted LiveKit SFU (media only: WebRTC audio/video/screen share) configured for Pterodactyl with a single UDP port.",
+    "description": "Self-hosted LiveKit SFU (media only) using the official release binary, configured for Pterodactyl with a single UDP port.",
     "features": null,
     "docker_images": {
-        "Nexus LiveKit (GHCR)": "ghcr.io/OWNER/nexus-livekit:latest"
+        "Debian (Pterodactyl yolk)": "ghcr.io/parkervcp/yolks:debian"
     },
     "file_denylist": [],
-    "startup": "/livekit-server --config /home/container/livekit.yaml",
+    "startup": "bash ./livekit-start.sh",
     "config": {
         "files": "{}",
         "startup": "{\"done\": \"starting LiveKit server\"}",
@@ -22,12 +22,42 @@
     },
     "scripts": {
         "installation": {
-            "script": "#!/bin/bash\n# LiveKit ships inside the Docker image; nothing to download.\nmkdir -p /mnt/server\necho \"LiveKit config is generated at every start from the egg variables.\"\n",
-            "container": "debian:trixie-slim",
+            "script": "#!/bin/bash\n# Downloads the launcher; it installs/updates the official livekit-server\n# binary (github.com/livekit/livekit) on every start.\nset -e\ncd /mnt/server\nREPO=\"${GITHUB_REPO:-zyypj/nexus}\"\ncurl -fsSL -o livekit-start.sh \"https://github.com/${REPO}/releases/latest/download/livekit-start.sh\"\nchmod +x livekit-start.sh\nrm -f .livekit-version\necho \"Installed. LiveKit is downloaded on first start.\"\n",
+            "container": "ghcr.io/parkervcp/installers:debian",
             "entrypoint": "bash"
         }
     },
     "variables": [
+        {
+            "name": "LiveKit version",
+            "description": "Official livekit-server release to run (tested: 1.13.9). Use latest to follow new releases.",
+            "env_variable": "LIVEKIT_VERSION",
+            "default_value": "1.13.9",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:32",
+            "field_type": "text"
+        },
+        {
+            "name": "Auto update",
+            "description": "1 = install the configured version on start when it differs from the installed one.",
+            "env_variable": "AUTO_UPDATE",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:0,1",
+            "field_type": "text"
+        },
+        {
+            "name": "GitHub repository (launcher)",
+            "description": "Where the installer downloads livekit-start.sh from.",
+            "env_variable": "GITHUB_REPO",
+            "default_value": "zyypj/nexus",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:100",
+            "field_type": "text"
+        },
         {
             "name": "API key",
             "description": "Key name shared with the Nexus server.",

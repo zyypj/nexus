@@ -12,6 +12,8 @@ interface NexusNativeSpec {
   startPlaybackCapture(): Promise<void>;
   stopPlaybackCapture(): Promise<void>;
   setMicMuted(muted: boolean): Promise<void>;
+  getAppVersion(): Promise<string>;
+  installUpdate(url: string, version: string): Promise<'permission' | 'downloading'>;
 }
 
 export interface PickedFile {
@@ -40,7 +42,11 @@ export const NexusNative = {
   startPlaybackCapture: () => native().startPlaybackCapture(),
   stopPlaybackCapture: () => native().stopPlaybackCapture(),
   setMicMuted: (muted: boolean) => native().setMicMuted(muted),
+  getAppVersion: () => native().getAppVersion(),
+  installUpdate: (url: string, version: string) => native().installUpdate(url, version),
 };
+
+export const UPDATE_ERROR_EVENT = 'NexusUpdateError';
 
 /**
  * Emitted while sharing device audio when an app that is playing forbids

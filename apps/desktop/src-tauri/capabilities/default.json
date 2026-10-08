@@ -12,6 +12,8 @@
     "core:window:allow-is-focused",
     "core:window:allow-is-visible",
     "notification:default",
-    "opener:default"
+    "opener:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

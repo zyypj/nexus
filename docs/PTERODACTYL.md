@@ -3,35 +3,29 @@
 São só **dois servidores** no painel: **Nexus Server** (API + WebSocket + SQLite + uploads) e
 **Nexus LiveKit** (mídia). Os eggs estão em `infrastructure/pterodactyl/`.
 
-## 1. Imagens Docker
+## 1. Como funciona
 
-Os eggs usam imagens próprias:
+Os eggs usam a imagem genérica `ghcr.io/parkervcp/yolks:debian` — **nenhuma imagem Docker
+precisa ser publicada**. O Nexus Server é baixado das
+[GitHub Releases](https://github.com/zyypj/nexus/releases) e **se atualiza sozinho a cada
+start** (SHA-256 conferido); o LiveKit usa o binário oficial do projeto LiveKit. Detalhes em
+[UPDATES.md](UPDATES.md).
 
-| Egg | Imagem | Dockerfile |
-|---|---|---|
-| Nexus Server | `ghcr.io/OWNER/nexus-server:latest` | `services/server/Dockerfile` (contexto: raiz do repo) |
-| Nexus LiveKit | `ghcr.io/OWNER/nexus-livekit:latest` | `infrastructure/livekit/Dockerfile` |
+Pré-requisito: existir ao menos uma release publicada (`node scripts/release.mjs 0.1.0` e
+`git push origin HEAD v0.1.0`).
 
-Opção A — GitHub Actions: suba o repositório no GitHub e rode **Actions → Docker images →
-Run workflow** (ou crie uma tag `v0.1.0`). As imagens vão para o GHCR da sua conta. Torne os
-pacotes públicos (ou configure credenciais do registry no Wings).
-
-Opção B — manual, em qualquer máquina com Docker:
-
-```bash
-docker build -f services/server/Dockerfile -t ghcr.io/SEU_USUARIO/nexus-server:latest .
-docker build -t ghcr.io/SEU_USUARIO/nexus-livekit:latest infrastructure/livekit
-docker push ghcr.io/SEU_USUARIO/nexus-server:latest
-docker push ghcr.io/SEU_USUARIO/nexus-livekit:latest
-```
-
-Depois de importar os eggs, troque `OWNER` pelo seu usuário em **Admin → Nests → (egg) →
-Docker Images** (ou edite o JSON antes de importar).
+Os Dockerfiles (`services/server/Dockerfile`, `infrastructure/livekit/Dockerfile`) continuam
+disponíveis para quem preferir Docker puro.
 
 ## 2. Importar os eggs
 
 Admin → Nests → crie um nest "Nexus" → **Import Egg** → `egg-nexus-server.json` e
-`egg-nexus-livekit.json`.
+`egg-nexus-livekit.json` (estão no repositório em `infrastructure/pterodactyl/` e anexados a
+cada release).
+
+Variáveis de atualização do egg Nexus: `GITHUB_REPO` (`zyypj/nexus`), `NEXUS_VERSION` (`latest`
+ou uma versão fixa) e `AUTO_UPDATE` (`1`). Para receber uma versão nova basta reiniciar o
+servidor — dá para automatizar com um *Schedule* diário de restart no painel.
 
 ## 3. Allocations (portas)
 

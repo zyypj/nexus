@@ -1175,3 +1175,21 @@ video.mirror {
   width: 0;
   background: var(--c-success);
 }
+
+/* ---------- update notice ---------- */
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin: 0 var(--space-sm) var(--space-sm);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--c-accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-accent) 40%, transparent);
+  font-size: var(--fs-sm);
+}
+.update-banner.error {
+  background: color-mix(in srgb, var(--c-danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--c-danger) 40%, transparent);
+}

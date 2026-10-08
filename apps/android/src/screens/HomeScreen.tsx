@@ -6,6 +6,7 @@ import { useShallow } from 'zustand/react/shallow';
 import type { Nav } from '../App';
 import { useCall } from '../call/callManager';
 import { client, useNexus } from '../lib/nexus';
+import { installUpdate, useUpdate } from '../lib/updater';
 import { Avatar, Badge, Icon, IconButton } from '../ui/components';
 import { colors, common, space } from '../ui/theme';
 
@@ -24,12 +25,31 @@ export function HomeScreen({ nav }: { nav: Nav }) {
       {connection !== 'ready' && (
         <Text style={styles.banner}>{connection === 'reconnecting' ? 'Reconectando…' : 'Conectando…'}</Text>
       )}
+      <UpdateBanner />
       <View style={styles.tabs}>
         <Tab label="Conversas" active={tab === 'chats'} onPress={() => setTab('chats')} />
         <Tab label={pending ? `Amigos (${pending})` : 'Amigos'} active={tab === 'friends'} onPress={() => setTab('friends')} />
       </View>
       {tab === 'chats' ? <Conversations nav={nav} /> : <Friends nav={nav} />}
     </View>
+  );
+}
+
+function UpdateBanner() {
+  const { available, status, error } = useUpdate();
+  if (!available) return null;
+  const label =
+    status === 'downloading'
+      ? 'Baixando… o instalador do Android abrirá em seguida.'
+      : status === 'needs-permission'
+        ? 'Permita "instalar apps desconhecidos" para o Nexus e toque de novo.'
+        : status === 'error'
+          ? (error ?? 'Falha na atualização. Toque para tentar de novo.')
+          : `Nexus ${available.version} disponível — toque para atualizar`;
+  return (
+    <Pressable style={styles.update} onPress={() => void installUpdate()}>
+      <Text style={common.text}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -237,6 +257,14 @@ function CreateGroup({ onClose, onCreated }: { onClose: () => void; onCreated: (
 }
 
 const styles = StyleSheet.create({
+  update: {
+    backgroundColor: 'rgba(43,179,163,0.16)',
+    borderColor: 'rgba(43,179,163,0.45)',
+    borderWidth: 1,
+    borderRadius: 10,
+    margin: space.sm,
+    padding: space.sm,
+  },
   banner: { backgroundColor: colors.highlight, color: '#1d1300', textAlign: 'center', fontWeight: '600', paddingVertical: 2 },
   tabs: { flexDirection: 'row', paddingHorizontal: space.md, paddingTop: space.sm, gap: space.sm },
   tab: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 },

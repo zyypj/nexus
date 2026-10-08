@@ -4,6 +4,7 @@ import { BackHandler, PermissionsAndroid, Platform, StatusBar, View } from 'reac
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { calls, useCall } from './call/callManager';
 import { createClient, savedServerUrl, useNexus, useSession } from './lib/nexus';
+import { startUpdateChecks } from './lib/updater';
 import { CallScreen } from './screens/CallScreen';
 import { ChatScreen } from './screens/ChatScreen';
 import { HomeScreen } from './screens/HomeScreen';
@@ -47,6 +48,7 @@ export default function App() {
 }
 
 function Main() {
+  useEffect(() => startUpdateChecks(), []);
   const [stack, setStack] = useState<Route[]>([{ name: 'home' }]);
   const nav: Nav = {
     push: (r) => setStack((s) => [...s, r]),

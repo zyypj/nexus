@@ -32,6 +32,8 @@ export interface Settings {
   localMutes: Record<string, boolean>;
   closeToTray: boolean;
   notifications: boolean;
+  /** Download new versions from GitHub in the background. */
+  autoUpdate: boolean;
 }
 
 const KEY = "nexus.settings.v1";
@@ -52,6 +54,7 @@ const defaults: Settings = {
   localMutes: {},
   closeToTray: true,
   notifications: true,
+  autoUpdate: true,
 };
 
 function load(): Settings {

@@ -46,6 +46,7 @@ class NexusNativeModule(private val ctx: ReactApplicationContext) :
     private var captureThread: Thread? = null
     @Volatile private var capturing = false
     private var playbackCallback: AudioManager.AudioPlaybackCallback? = null
+    private val installer by lazy { ApkInstaller(ctx) }
 
     init {
         ctx.addActivityEventListener(this)
@@ -60,6 +61,29 @@ class NexusNativeModule(private val ctx: ReactApplicationContext) :
     fun setPref(key: String, value: String?, promise: Promise) {
         prefs.edit().apply { if (value == null) remove(key) else putString(key, value) }.apply()
         promise.resolve(null)
+    }
+
+    // ---- self update (GitHub Releases) ----
+
+    @ReactMethod
+    fun getAppVersion(promise: Promise) {
+        val info = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+        promise.resolve(info.versionName)
+    }
+
+    /** Resolves "permission" when the user must first allow installing unknown apps. */
+    @ReactMethod
+    fun installUpdate(url: String, version: String, promise: Promise) {
+        if (!installer.canInstall()) {
+            installer.openInstallPermissionSettings()
+            promise.resolve("permission")
+            return
+        }
+        installer.downloadAndInstall(url, version) { error ->
+            ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("NexusUpdateError", Arguments.createMap().apply { putString("message", error) })
+        }
+        promise.resolve("downloading")
     }
 
     // ---- call foreground service ----
