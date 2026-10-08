@@ -28,6 +28,16 @@ export const ICON_PATHS = {
   shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
   hash: "M4 9h16M4 15h16M10 3L8 21M16 3l-2 18",
   maximize: "M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3",
+  chevronDown: "M6 9l6 6 6-6",
+  chevronRight: "M9 6l6 6-6 6",
+  crown: "M3 18h18M4 8l4 5 4-7 4 7 4-5-1.5 10h-13z",
+  lock: "M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1zM8 11V7a4 4 0 0 1 8 0v4",
+  link: "M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7",
+  more: "M12 5h.01M12 12h.01M12 19h.01",
+  home: "M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10",
+  ban: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM4.9 4.9l14.2 14.2",
+  compass: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM16.2 7.8l-2.1 6.4-6.4 2.1 2.1-6.4z",
+  doorOut: "M10 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5M16 17l5-5-5-5M21 12H9",
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;

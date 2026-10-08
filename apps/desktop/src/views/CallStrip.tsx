@@ -14,7 +14,9 @@ export function CallStrip() {
   const error = useCall((s) => s.error);
   const title = useNexus((s) => {
     const c = conversationId ? s.conversations[conversationId] : undefined;
-    return c ? conversationTitle(s, c) : "";
+    if (!c) return "";
+    const server = c.server_id ? s.servers[c.server_id] : undefined;
+    return server ? `${c.name} / ${server.name}` : conversationTitle(s, c);
   });
   const [sharing, setSharing] = useState(false);
 

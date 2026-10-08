@@ -520,6 +520,7 @@ export function applyFrame(s: NexusState, frame: GatewayFrame, now = Date.now())
 // ---- selectors ----
 
 export function conversationTitle(s: NexusState, c: ConversationView): string {
+  if (isChannel(c)) return c.name ?? "canal";
   if (c.kind === "group") {
     if (c.name) return c.name;
     const others = c.members.filter((m) => m.id !== s.me?.id).map((m) => s.users[m.id]?.display_name ?? m.display_name);
@@ -575,7 +576,7 @@ export interface ChannelGroup {
 }
 
 /** A server's visible channels grouped by category, in display order. */
-export function serverChannels(s: NexusState, serverId: Id): ChannelGroup[] {
+export function serverChannels(s: Pick<NexusState, "servers" | "conversations">, serverId: Id): ChannelGroup[] {
   const server = s.servers[serverId];
   if (!server) return [];
   const channels = Object.values(s.conversations)

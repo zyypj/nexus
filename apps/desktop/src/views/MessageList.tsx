@@ -1,5 +1,5 @@
-import type { Attachment, Id } from "@nexus/protocol";
-import { type ClientMessage, formatBytes, formatDay, formatTime, sameDay } from "@nexus/shared";
+import { type Attachment, type Id, Permissions, hasPermission } from "@nexus/protocol";
+import { type ClientMessage, formatBytes, formatDay, formatTime, memberColor, memberName, sameDay } from "@nexus/shared";
 import { QUICK_REACTIONS } from "@nexus/ui";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -105,6 +105,19 @@ const MessageItem = memo(function MessageItem({
   const author = useNexus((s) => s.users[m.author_id]);
   const myId = useNexus((s) => s.me?.id);
   const isOwner = useNexus((s) => s.conversations[m.conversation_id]?.owner_id === s.me?.id);
+  // Server channels: nickname, role color and per-channel permissions.
+  const channelPerms = useNexus((s) => s.conversations[m.conversation_id]?.permissions);
+  const authorName = useNexus((s) => {
+    const sid = s.conversations[m.conversation_id]?.server_id;
+    return sid ? memberName(s, s.servers[sid], m.author_id) : (s.users[m.author_id]?.display_name ?? "Usuário");
+  });
+  const authorColor = useNexus((s) => {
+    const sid = s.conversations[m.conversation_id]?.server_id;
+    const sv = sid ? s.servers[sid] : undefined;
+    return sv ? memberColor(sv, m.author_id) : undefined;
+  });
+  const canReact = channelPerms === undefined || hasPermission(channelPerms, Permissions.ADD_REACTIONS);
+  const canModerate = channelPerms !== undefined && hasPermission(channelPerms, Permissions.MANAGE_MESSAGES);
   const authorBlocked = useNexus((s) => !!s.blocked[m.author_id]);
   const replyAuthor = useNexus((s) => (m.reply_to ? s.users[m.reply_to.author_id]?.display_name : undefined));
   const [editing, setEditing] = useState(false);
@@ -135,7 +148,7 @@ const MessageItem = memo(function MessageItem({
         )}
         {!compact && (
           <div className="message-head">
-            <strong>{author?.display_name ?? "Usuário"}</strong>
+            <strong style={authorColor ? { color: authorColor } : undefined}>{authorName}</strong>
             <time>{formatTime(m.created_at)}</time>
           </div>
         )}
@@ -192,9 +205,11 @@ const MessageItem = memo(function MessageItem({
       </div>
       {!m.local && !editing && (
         <div className="message-actions">
-          <button type="button" className="icon-btn small" title="Reagir" onClick={() => setPicker((p) => !p)}>
-            <Icon name="smile" size={16} />
-          </button>
+          {canReact && (
+            <button type="button" className="icon-btn small" title="Reagir" onClick={() => setPicker((p) => !p)}>
+              <Icon name="smile" size={16} />
+            </button>
+          )}
           <button type="button" className="icon-btn small" title="Responder" onClick={() => onReply(m.id)}>
             <Icon name="reply" size={16} />
           </button>
@@ -203,7 +218,7 @@ const MessageItem = memo(function MessageItem({
               <Icon name="edit" size={16} />
             </button>
           )}
-          {(mine || isOwner) && (
+          {(mine || isOwner || canModerate) && (
             <button
               type="button"
               className="icon-btn small danger"

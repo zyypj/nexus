@@ -7,10 +7,23 @@ import { Icon } from "../components/Icon";
 import { client, useNexus } from "../lib/nexus";
 import { CallStrip } from "./CallStrip";
 import { CreateGroupDialog } from "./CreateGroupDialog";
+import { ServerSidebar } from "./ServerSidebar";
 import { UpdateBanner } from "./UpdateBanner";
 import { UserBar } from "./UserBar";
 
-export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
+export function Sidebar({ onOpenSettings, serverId }: { onOpenSettings: () => void; serverId: string | null }) {
+  return (
+    <aside className="sidebar panel">
+      {serverId ? <ServerSidebar serverId={serverId} /> : <HomeNav />}
+      <UpdateBanner />
+      <CallStrip />
+      <UserBar onOpenSettings={onOpenSettings} />
+    </aside>
+  );
+}
+
+/** Início: friends, DMs and groups. */
+function HomeNav() {
   const conversations = useNexus(useShallow(sortedConversations));
   const active = useNexus((s) => s.activeConversationId);
   const pending = useNexus((s) => s.incoming.length);
@@ -19,7 +32,10 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const groups = conversations.filter((c) => c.kind === "group");
 
   return (
-    <aside className="sidebar">
+    <>
+      <header className="server-header home">
+        <strong>Início</strong>
+      </header>
       <nav className="sidebar-scroll">
         <button
           type="button"
@@ -49,11 +65,8 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
           <ConversationItem key={c.id} conversation={c} active={c.id === active} />
         ))}
       </nav>
-      <UpdateBanner />
-      <CallStrip />
-      <UserBar onOpenSettings={onOpenSettings} />
       {creating && <CreateGroupDialog onClose={() => setCreating(false)} />}
-    </aside>
+    </>
   );
 }
 

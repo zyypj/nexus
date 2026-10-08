@@ -1,13 +1,16 @@
-import type { Id } from "@nexus/protocol";
+import { type Id, Permissions, hasPermission, isChannel } from "@nexus/protocol";
 import { callForConversation, conversationTitle, dmPeer, typingUsers } from "@nexus/shared";
 import { type DragEvent, useRef, useState } from "react";
 import { calls, useCall } from "../call/callStore";
 import { Avatar } from "../components/Avatar";
 import { Icon } from "../components/Icon";
 import { useNexus } from "../lib/nexus";
+import { useUi } from "../lib/ui";
 import { CallPanel } from "./CallPanel";
 import { Composer } from "./Composer";
 import { GroupMembers } from "./GroupMembers";
+import { MemberList, MemberListToggle } from "./MemberList";
+import { VoiceLobby } from "./VoiceLobby";
 import { MessageList } from "./MessageList";
 
 export function ChatView({ conversationId }: { conversationId: Id }) {
@@ -43,7 +46,11 @@ export function ChatView({ conversationId }: { conversationId: Id }) {
     if (!blocked && e.dataTransfer.files.length) setDropped(Array.from(e.dataTransfer.files));
   };
   const [showMembers, setShowMembers] = useState(false);
+  const server = useNexus((s) => (conv?.server_id ? s.servers[conv.server_id] : undefined));
+  const showServerMembers = useUi((s) => s.memberList);
   if (!conv) return null;
+  const channel = isChannel(conv);
+  const canSend = !channel || hasPermission(conv.permissions, Permissions.SEND_MESSAGES);
 
   const inThisCall = myCallConv === conversationId;
   const startCall = async (video: boolean) => {
@@ -58,12 +65,21 @@ export function ChatView({ conversationId }: { conversationId: Id }) {
         {conv.kind === "dm" ? (
           <Avatar user={peerUser ?? peer} size={28} presence={presence} />
         ) : (
-          <Icon name="hash" />
+          <Icon name={conv.kind === "voice" ? "volume" : "hash"} />
         )}
         <h2>{title}</h2>
         {conv.kind === "group" && <small className="muted">{conv.members.length} membros</small>}
+        {conv.kind === "text" && conv.topic && (
+          <>
+            <span className="header-sep" />
+            <small className="muted header-topic" title={conv.topic}>
+              {conv.topic}
+            </small>
+          </>
+        )}
         <div className="header-actions">
-          {callsEnabled && !inThisCall && !blocked && (
+          {conv.kind === "text" && <MemberListToggle />}
+          {callsEnabled && !channel && !inThisCall && !blocked && (
             <>
               <button type="button" className="icon-btn" title="Chamada de voz" onClick={() => void startCall(false)}>
                 <Icon name="phone" />
@@ -86,7 +102,13 @@ export function ChatView({ conversationId }: { conversationId: Id }) {
         </div>
       </header>
 
-      {inThisCall ? (
+      {conv.kind === "voice" ? (
+        inThisCall ? (
+          <CallPanel />
+        ) : (
+          <VoiceLobby channel={conv} />
+        )
+      ) : inThisCall ? (
         <CallPanel />
       ) : (
         activeCall &&
@@ -103,6 +125,7 @@ export function ChatView({ conversationId }: { conversationId: Id }) {
         )
       )}
 
+      {conv.kind !== "voice" && (
       <div className="chat-body">
         <div
           className="chat-column"
@@ -126,6 +149,10 @@ export function ChatView({ conversationId }: { conversationId: Id }) {
           <TypingIndicator conversationId={conversationId} />
           {blocked ? (
             <div className="composer disabled">Você bloqueou este usuário.</div>
+          ) : !canSend ? (
+            <div className="composer disabled">
+              <Icon name="lock" size={14} /> Você não tem permissão para enviar mensagens em #{conv.name}.
+            </div>
           ) : (
             <Composer
               conversationId={conversationId}
@@ -137,7 +164,9 @@ export function ChatView({ conversationId }: { conversationId: Id }) {
           )}
         </div>
         {showMembers && conv.kind === "group" && <GroupMembers conversationId={conversationId} />}
+        {server && conv.kind === "text" && showServerMembers && <MemberList server={server} />}
       </div>
+      )}
     </section>
   );
 }

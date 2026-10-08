@@ -10,7 +10,10 @@ body,
   margin: 0;
 }
 body {
-  background: var(--c-bg);
+  background:
+    radial-gradient(1200px 600px at 0% 0%, rgba(84, 104, 245, 0.1), transparent 60%),
+    radial-gradient(900px 500px at 100% 100%, rgba(155, 92, 246, 0.08), transparent 60%),
+    var(--c-bg);
   color: var(--c-text);
   font-family: var(--font);
   font-size: var(--fs-md);
@@ -295,7 +298,10 @@ button.link {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at 30% 20%, #16303a 0, var(--c-bg) 60%);
+  background:
+    radial-gradient(circle at 25% 20%, rgba(84, 104, 245, 0.28) 0, transparent 45%),
+    radial-gradient(circle at 80% 85%, rgba(155, 92, 246, 0.22) 0, transparent 45%),
+    var(--c-bg);
 }
 .login-card {
   width: 380px;
@@ -317,15 +323,24 @@ button.link {
   font-size: var(--fs-xxl);
 }
 
-/* ---------- shell ---------- */
+/* ---------- shell: floating panels ---------- */
 .shell {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 72px 264px 1fr;
+  gap: 8px;
   height: 100%;
+  padding: 8px 8px 8px 0;
+}
+.panel {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  overflow: hidden;
 }
 .sidebar {
-  background: var(--c-surface);
-  border-right: 1px solid var(--c-border);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -395,6 +410,20 @@ button.link {
   min-height: 0;
   position: relative;
 }
+.empty-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  color: var(--c-text-muted);
+}
+.empty-main img {
+  width: 96px;
+  opacity: 0.25;
+  filter: grayscale(0.3);
+}
 .conn-banner {
   background: var(--c-highlight);
   color: #1d1300;
@@ -424,9 +453,11 @@ button.link {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: var(--space-sm);
-  background: var(--c-bg);
-  border-top: 1px solid var(--c-border);
+  margin: 0 8px 8px;
+  padding: 6px;
+  background: var(--c-surface-raised);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
 }
 .userbar-me {
   flex: 1;
@@ -1483,7 +1514,7 @@ video.mirror {
   gap: var(--space-md);
   padding: var(--space-xl);
   text-align: center;
-  background: radial-gradient(circle at 30% 20%, #16303a 0, var(--c-bg) 60%);
+  background: radial-gradient(circle at 30% 20%, rgba(84, 104, 245, 0.25) 0, var(--c-bg) 60%);
 }
 .update-gate h1 {
   margin: 0;

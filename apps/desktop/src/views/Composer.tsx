@@ -1,4 +1,4 @@
-import { MAX_ATTACHMENTS, MAX_MESSAGE_LENGTH, type Id } from "@nexus/protocol";
+import { MAX_ATTACHMENTS, MAX_MESSAGE_LENGTH, type Id, Permissions, hasPermission } from "@nexus/protocol";
 import { formatBytes } from "@nexus/shared";
 import { type ClipboardEvent, useEffect, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
@@ -32,6 +32,11 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
   const [recordingMs, setRecordingMs] = useState<number | null>(null);
   // 0 = no limit (default since 0.1.2).
   const maxUpload = useNexus((s) => s.server?.max_upload_size ?? 0);
+  // Server channels may forbid files (also voice messages).
+  const canAttach = useNexus((s) => {
+    const p = s.conversations[conversationId]?.permissions;
+    return p === undefined || hasPermission(p, Permissions.ATTACH_FILES);
+  });
   const reply = useNexus((s) =>
     replyTo ? s.messages[conversationId]?.items.find((m) => m.id === replyTo) : undefined,
   );
@@ -59,6 +64,10 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
 
   function addFiles(list: FileList | File[]) {
     setError(null);
+    if (!canAttach) {
+      setError("Você não tem permissão para enviar arquivos neste canal.");
+      return;
+    }
     const next = [...files];
     for (const f of Array.from(list)) {
       if (f.size === 0) {
@@ -207,9 +216,11 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
         </div>
       ) : (
       <div className="composer-row">
-        <button type="button" className="icon-btn" title="Anexar arquivo" onClick={() => fileInput.current?.click()}>
-          <Icon name="paperclip" />
-        </button>
+        {canAttach && (
+          <button type="button" className="icon-btn" title="Anexar arquivo" onClick={() => fileInput.current?.click()}>
+            <Icon name="paperclip" />
+          </button>
+        )}
         <input
           ref={fileInput}
           type="file"
@@ -245,7 +256,7 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
             } else if (e.key === "Escape" && replyTo) onClearReply();
           }}
         />
-        {!text.trim() && files.length === 0 ? (
+        {!text.trim() && files.length === 0 && canAttach ? (
           <button type="button" className="icon-btn" title="Gravar mensagem de voz" onClick={() => void startVoice()}>
             <Icon name="mic" />
           </button>

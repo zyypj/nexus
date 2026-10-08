@@ -9,6 +9,8 @@ import { AppShell } from "./views/AppShell";
 import { LoginView } from "./views/LoginView";
 import { UpdateGate } from "./views/UpdateGate";
 
+let restoreStarted = false;
+
 export function App() {
   const phase = useSession((s) => s.phase);
   // Mandatory update before anything else is shown (no-op outside Tauri).
@@ -18,6 +20,11 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    // Once per page: a second restore (React dev StrictMode re-runs effects)
+    // would race the first refresh-token rotation and get the session revoked
+    // by the server's reuse detection.
+    if (restoreStarted) return;
+    restoreStarted = true;
     const url = useSettings.getState().serverUrl;
     if (!url) {
       useSession.getState().setPhase("login");

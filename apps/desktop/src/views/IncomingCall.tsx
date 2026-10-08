@@ -17,6 +17,8 @@ export function IncomingCall() {
   const ringing = useNexus((s) =>
     Object.values(s.calls).find(
       (c) =>
+        // Voice channels never ring: people drop in and out.
+        !s.conversations[c.conversation_id]?.server_id &&
         c.started_by !== myId &&
         c.participants.length > 0 &&
         !c.participants.some((p) => p.user_id === myId) &&
