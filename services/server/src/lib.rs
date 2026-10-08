@@ -110,9 +110,21 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
         let listener = tokio::net::TcpListener::bind(addr)
             .await
             .with_context(|| format!("binding {addr}"))?;
-        axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal())
-            .await?;
+        // Gateway WebSockets never finish on their own, so graceful shutdown
+        // gets the same 10 s cap as the TLS path instead of waiting forever.
+        let stopping = std::sync::Arc::new(tokio::sync::Notify::new());
+        let notify = stopping.clone();
+        let server = axum::serve(listener, app).with_graceful_shutdown(async move {
+            shutdown_signal().await;
+            notify.notify_one();
+        });
+        tokio::select! {
+            r = server => r?,
+            _ = async {
+                stopping.notified().await;
+                tokio::time::sleep(Duration::from_secs(10)).await;
+            } => tracing::info!("closing the remaining connections"),
+        }
     }
     Ok(())
 }

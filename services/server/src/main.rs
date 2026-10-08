@@ -42,7 +42,7 @@ fn main() -> anyhow::Result<()> {
         .enable_all()
         .build()?;
 
-    runtime.block_on(async move {
+    let result = runtime.block_on(async move {
         match cli.command.unwrap_or(Command::Serve) {
             Command::Serve => {
                 let config = Config::from_env()?;
@@ -54,5 +54,9 @@ fn main() -> anyhow::Result<()> {
                 admin_cli::run(cmd).await
             }
         }
-    })
+    });
+    // The console's stdin read runs on a blocking thread that cannot be
+    // cancelled; a plain runtime drop would wait for the next typed line.
+    runtime.shutdown_timeout(std::time::Duration::from_secs(1));
+    result
 }

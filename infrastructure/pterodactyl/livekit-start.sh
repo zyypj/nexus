@@ -12,6 +12,30 @@ cd "${CONTAINER_HOME:-/home/container}" || exit 1
 
 log() { echo "[livekit-start] $*"; }
 
+# 0. Keeps this launcher itself up to date from the Nexus release (GITHUB_REPO),
+#    verifying the published SHA-256, then re-executes the new version once.
+self_update() {
+  local repo="${GITHUB_REPO:-zyypj/nexus}" base tmp
+  base="${RELEASE_BASE:-https://github.com/${repo}/releases/latest/download}"
+  tmp=$(mktemp -d)
+  if curl -fsSL --max-time 20 -o "$tmp/livekit-start.sh" "${base%/}/livekit-start.sh" 2>/dev/null &&
+     curl -fsSL --max-time 20 -o "$tmp/livekit-start.sh.sha256" "${base%/}/livekit-start.sh.sha256" 2>/dev/null &&
+     (cd "$tmp" && sha256sum -c livekit-start.sh.sha256 >/dev/null 2>&1); then
+    if ! cmp -s "$tmp/livekit-start.sh" ./livekit-start.sh; then
+      install -m 0755 "$tmp/livekit-start.sh" ./livekit-start.sh.new && mv -f ./livekit-start.sh.new ./livekit-start.sh
+      rm -rf "$tmp"
+      log "launcher updated; restarting it"
+      NEXUS_LAUNCHER_UPDATED=1 exec bash ./livekit-start.sh
+    fi
+  else
+    log "could not check for a launcher update; using the current one"
+  fi
+  rm -rf "$tmp"
+}
+case "${AUTO_UPDATE:-1}" in
+  1|true|yes) [ -n "${NEXUS_LAUNCHER_UPDATED:-}" ] || self_update ;;
+esac
+
 WANTED="${LIVEKIT_VERSION:-1.13.9}"
 case "$(uname -m)" in
   x86_64) ARCH=amd64 ;;
@@ -112,7 +136,14 @@ TCP_PORT="${LIVEKIT_TCP_PORT:-7881}"
   echo "  json: false"
 } > livekit.yaml
 
-export LIVEKIT_KEYS="${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
 log "signaling tcp/$PORT, media udp/$UDP_PORT, ice-tcp tcp/$TCP_PORT, public ip ${LIVEKIT_PUBLIC_IP:-auto (STUN)}"
+# livekit-server also reads every config field from LIVEKIT_<FIELD> env vars,
+# which override livekit.yaml: an empty egg variable such as LIVEKIT_PORT
+# would silently turn the signaling port into 0. Hand it only the keys.
+KEYS="${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+for v in $(compgen -e); do
+  case "$v" in LIVEKIT_*) unset "$v" ;; esac
+done
+export LIVEKIT_KEYS="$KEYS"
 chmod +x ./livekit-server
 exec ./livekit-server --config livekit.yaml

@@ -76,6 +76,7 @@ jobs:
           (cd dist && sha256sum nexus-server-linux-x86_64.tar.gz > nexus-server-linux-x86_64.tar.gz.sha256)
           echo "${{ needs.prepare.outputs.version }}" > dist/VERSION
           cp infrastructure/pterodactyl/nexus-start.sh infrastructure/pterodactyl/livekit-start.sh dist/
+          (cd dist && sha256sum livekit-start.sh > livekit-start.sh.sha256)
           cp infrastructure/pterodactyl/egg-*.json dist/
       - name: Upload
         env:
