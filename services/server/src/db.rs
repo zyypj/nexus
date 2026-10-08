@@ -25,6 +25,41 @@ pub async fn connect(path: &Path) -> anyhow::Result<Db> {
         .synchronous(SqliteSynchronous::Normal)
         .foreign_keys(true)
         .busy_timeout(Duration::from_secs(5));
+    open_with_backup(options, path).await
+}
+
+/// Opens the file database; when a schema migration is pending, first saves
+/// a consistent copy (`VACUUM INTO`) under `<data>/backups/`, so an upgrade
+/// can always be rolled back by restoring that file.
+async fn open_with_backup(options: SqliteConnectOptions, path: &Path) -> anyhow::Result<Db> {
+    if path.exists() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options.clone())
+            .await
+            .context("opening SQLite database")?;
+        let applied: Vec<(i64,)> = sqlx::query_as("SELECT version FROM _sqlx_migrations WHERE success = 1")
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_default();
+        let pending = MIGRATOR
+            .iter()
+            .filter(|m| !applied.iter().any(|(v,)| *v == m.version))
+            .count();
+        if !applied.is_empty() && pending > 0 {
+            let dir = path.parent().unwrap_or(Path::new(".")).join("backups");
+            tokio::fs::create_dir_all(&dir).await?;
+            let latest = applied.iter().map(|(v,)| *v).max().unwrap_or(0);
+            let file = dir.join(format!("nexus-schema{latest}-{}.db", now_ms()));
+            sqlx::query("VACUUM INTO ?")
+                .bind(file.to_string_lossy().to_string())
+                .execute(&pool)
+                .await
+                .context("backing up the database before migrating")?;
+            tracing::info!(backup = %file.display(), pending, "database backed up before migrating");
+        }
+        pool.close().await;
+    }
     open(options, 8).await
 }
 

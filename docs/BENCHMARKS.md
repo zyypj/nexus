@@ -43,6 +43,8 @@ LK=lk BENCH=nexus-bench EXPECT_IDENTITY=<id do usuário> bash scripts/bench-call
 | Aberto, logado, recém-iniciado | 338 | **145** | — | — |
 | Aberto, DM aberta, após uma call (antes da correção) | 466 | 192 | 0,59 | 1,55 |
 | Aberto, DM aberta, após uma call (com `AudioContext` liberado) | 416 | **173** | **0,52** | 6,19 |
+| **0.2.0**: servidor aberto (canal #geral + lista de membros), com porta de depuração do WebView ligada | 418 | 176 | 1,03 | 6,18 |
+| **0.2.0**: servidor aberto, sem porta de depuração (uso normal) | 358 | **154** | **0,23** | 1,55 |
 | Call 2 pessoas (voz) | 460 | 192 | **8,1** | 18,6 |
 | Call 5 pessoas (voz) | 473 | 198 | 11,2 | 18,6 |
 | Call 10 pessoas (voz) | 488 | 206 | 15,4 | 21,7 |
@@ -59,6 +61,10 @@ Observações honestas:
   menos tráfego nos silêncios.
 - Cada cenário foi medido uma vez (60 amostras). Variação entre execuções observada: a call de
   2 pessoas mediu 5,9% e 8,1% em duas séries diferentes.
+- 0.2.0 (servidores + visual novo): numa amostra de 20 s por processo, o renderer ficou em 0,00%
+  parado — as animações são só de transição (CSS `transform`/`opacity`), nada roda em loop. A
+  primeira medição (1,03%) estava com `--remote-debugging-port`, que custa CPU e memória por si
+  só; a segunda é a do app como o usuário roda.
 - **Ainda não medido**: screen share 1080p30 (precisa de interação com o seletor de tela do
   Windows; medir manualmente com `nexus-bench measure` durante um compartilhamento).
 

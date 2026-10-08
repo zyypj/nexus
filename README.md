@@ -1,7 +1,8 @@
 # Nexus
 
 Aplicativo privado de comunicação para um grupo pequeno de amigos: mensagens, DMs, grupos,
-chamadas de voz e vídeo, compartilhamento de tela com áudio do computador. **Self-hosted**,
+**servidores** (categorias, canais de texto e voz, cargos com cores e permissões, convites,
+expulsão e banimento), chamadas de voz e vídeo, compartilhamento de tela com áudio do computador. **Self-hosted**,
 leve e feito para **Windows** e **Android**. O nome é configurável (`NEXUS_APP_NAME` no servidor,
 `productName` no app).
 
@@ -79,4 +80,5 @@ CI: `.github/workflows/ci.yml` (servidor, TypeScript, app Windows, APK Android) 
 [Áudio](docs/AUDIO.md) · [Compartilhamento de tela](docs/SCREEN_SHARE.md) ·
 [LiveKit](docs/LIVEKIT.md) · [Pterodactyl](docs/PTERODACTYL.md) ·
 [Benchmarks](docs/BENCHMARKS.md) · [Segurança](docs/SECURITY.md) · [Atualizações](docs/UPDATES.md) ·
+[Servidores](docs/SERVERS.md) ·
 [Status do projeto](PROJECT_STATUS.md)

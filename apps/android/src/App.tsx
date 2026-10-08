@@ -11,11 +11,17 @@ import { ChatScreen } from './screens/ChatScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { IncomingCall } from './screens/IncomingCall';
 import { LoginScreen } from './screens/LoginScreen';
+import { ServerScreen } from './screens/ServerScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { UpdateRequired } from './screens/UpdateRequired';
 import { colors } from './ui/theme';
 
-export type Route = { name: 'home' } | { name: 'chat'; id: Id } | { name: 'call' } | { name: 'settings' };
+export type Route =
+  | { name: 'home' }
+  | { name: 'chat'; id: Id }
+  | { name: 'call' }
+  | { name: 'settings' }
+  | { name: 'server'; id: Id };
 
 export interface Nav {
   push: (r: Route) => void;
@@ -122,6 +128,8 @@ function screen(route: Route, nav: Nav) {
       return <CallScreen nav={nav} />;
     case 'settings':
       return <SettingsScreen nav={nav} />;
+    case 'server':
+      return <ServerScreen key={route.id} serverId={route.id} nav={nav} />;
     default:
       return <HomeScreen nav={nav} />;
   }

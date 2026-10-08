@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-08 (sessão 1, versão 0.1.1).
+Última atualização: 2026-10-08 (versão 0.2.0).
 
 ## Fase atual
 
@@ -89,6 +89,27 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
+
+## 0.2.0 — servidores e visual novo
+
+- **Servidores** (detalhes em docs/SERVERS.md): criar, convidar (código com limite de usos e
+  expiração), sair, expulsar, banir/desbanir, transferir dono, ícone. Categorias recolhíveis,
+  canais de texto (tópico) e de voz (quem está dentro, mutado/ao vivo, anel de fala, não tocam).
+  Cargos com cor, posição, destaque na lista e permissões (17 bits, estilo Discord), ajustes por
+  categoria/canal (negar/herdar/permitir), hierarquia aplicada no servidor. Apelidos por servidor.
+- Canais reaproveitam `conversations`: mensagens, anexos, mídia no chat, voz, reações e calls
+  funcionam igual. Token do LiveKit respeita "Falar" e "Vídeo e tela".
+- Migração `0002_servers.sql` testada em dados reais da 0.1.x; **backup automático** em
+  `data/backups/` antes de qualquer migração pendente.
+- Visual novo (Windows): painéis flutuantes com bordas arredondadas, paleta índigo/violeta,
+  barra de servidores, lista de membros, animações só de transição (`transform`/`opacity`, sem
+  `backdrop-filter`, respeita "reduzir movimento").
+- Android: aba Servidores, entrar/criar, canais de texto e voz, convite pelo compartilhamento,
+  apelido e cor de cargo no chat. Cargos/permissões/moderação só no Windows por enquanto.
+- Medido (docs/BENCHMARKS.md): servidor aberto com lista de membros = 154 MB privados,
+  0,23% de CPU parado (0.1.5: 173 MB / 0,52%).
+- Testes: 93 do servidor (6 novos de servidores + 4 do motor de permissões), 21 do shared,
+  typecheck/jest do Android.
 
 ## 0.1.5 — logo nova
 
@@ -243,3 +264,4 @@ docs/                            ARCHITECTURE, WINDOWS, ANDROID, AUDIO, SCREEN_S
 4. Testar hotkeys/PTT com o app minimizado.
 5. Construir imagens Docker e validar os eggs num Pterodactyl real.
 6. Medir screen share 1080p30, modo Padrão de NS, comparação controlada com o Discord.
+7. Servidores no Android: configurações (cargos, permissões, moderação) e lista de membros.

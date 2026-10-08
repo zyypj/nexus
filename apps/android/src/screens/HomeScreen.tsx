@@ -7,11 +7,12 @@ import type { Nav } from '../App';
 import { useCall } from '../call/callManager';
 import { client, useNexus } from '../lib/nexus';
 import { installUpdate, useUpdate } from '../lib/updater';
+import { AddServer, ServerIcon } from './ServerScreen';
 import { Avatar, Badge, Icon, IconButton } from '../ui/components';
 import { colors, common, space } from '../ui/theme';
 
 export function HomeScreen({ nav }: { nav: Nav }) {
-  const [tab, setTab] = useState<'chats' | 'friends'>('chats');
+  const [tab, setTab] = useState<'chats' | 'servers' | 'friends'>('chats');
   const pending = useNexus((s) => s.incoming.length);
   const connection = useNexus((s) => s.connection);
   const inCall = useCall((s) => s.status !== 'idle');
@@ -28,9 +29,46 @@ export function HomeScreen({ nav }: { nav: Nav }) {
       <UpdateBanner />
       <View style={styles.tabs}>
         <Tab label="Conversas" active={tab === 'chats'} onPress={() => setTab('chats')} />
+        <Tab label="Servidores" active={tab === 'servers'} onPress={() => setTab('servers')} />
         <Tab label={pending ? `Amigos (${pending})` : 'Amigos'} active={tab === 'friends'} onPress={() => setTab('friends')} />
       </View>
-      {tab === 'chats' ? <Conversations nav={nav} /> : <Friends nav={nav} />}
+      {tab === 'chats' ? <Conversations nav={nav} /> : tab === 'servers' ? <Servers nav={nav} /> : <Friends nav={nav} />}
+    </View>
+  );
+}
+
+function Servers({ nav }: { nav: Nav }) {
+  const servers = useNexus(useShallow((s) => Object.values(s.servers)));
+  const unread = useNexus((s) => s.conversations);
+  const [adding, setAdding] = useState(false);
+  return (
+    <View style={{ flex: 1 }}>
+      <FlatList
+        data={servers}
+        keyExtractor={(s) => s.id}
+        renderItem={({ item }) => {
+          const hasUnread = Object.values(unread).some((c) => c.server_id === item.id && c.unread_count > 0);
+          return (
+            <Pressable style={styles.row} onPress={() => nav.push({ name: 'server', id: item.id })}>
+              <ServerIcon server={item} size={44} />
+              <View style={{ flex: 1 }}>
+                <Text style={[common.text, hasUnread && { fontWeight: '700' }]} numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <Text style={common.muted}>
+                  {item.members.length} {item.members.length === 1 ? 'membro' : 'membros'}
+                </Text>
+              </View>
+              {hasUnread && <View style={styles.dot} />}
+            </Pressable>
+          );
+        }}
+        ListEmptyComponent={<Text style={styles.empty}>Você ainda não está em nenhum servidor. Toque no + para criar um ou entrar com um convite.</Text>}
+      />
+      <Pressable style={styles.fab} onPress={() => setAdding(true)} accessibilityLabel="Adicionar servidor">
+        <Icon name="plus" color={colors.accentText} />
+      </Pressable>
+      {adding && <AddServer onClose={() => setAdding(false)} onOpen={(id) => nav.push({ name: 'server', id })} />}
     </View>
   );
 }
@@ -257,9 +295,10 @@ function CreateGroup({ onClose, onCreated }: { onClose: () => void; onCreated: (
 }
 
 const styles = StyleSheet.create({
+  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.text },
   update: {
-    backgroundColor: 'rgba(43,179,163,0.16)',
-    borderColor: 'rgba(43,179,163,0.45)',
+    backgroundColor: 'rgba(84,104,245,0.16)',
+    borderColor: 'rgba(84,104,245,0.45)',
     borderWidth: 1,
     borderRadius: 10,
     margin: space.sm,

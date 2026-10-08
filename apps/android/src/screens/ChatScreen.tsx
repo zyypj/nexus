@@ -1,4 +1,4 @@
-import type { Attachment, Id } from '@nexus/protocol';
+import { type Attachment, type Id, Permissions, hasPermission, isChannel } from '@nexus/protocol';
 import {
   type ClientMessage,
   callForConversation,
@@ -9,6 +9,8 @@ import {
   formatTime,
   sameDay,
   typingUsers,
+  memberColor,
+  memberName,
 } from '@nexus/shared';
 import { QUICK_REACTIONS } from '@nexus/ui';
 import React, { memo, useEffect, useMemo, useState } from 'react';
@@ -52,6 +54,8 @@ export function ChatScreen({ conversationId, nav }: { conversationId: Id; nav: N
   // Inverted list: newest first.
   const data = useMemo(() => [...items].reverse(), [items]);
   if (!conv) return null;
+  const channel = isChannel(conv);
+  const canSend = !channel || hasPermission(conv.permissions, Permissions.SEND_MESSAGES);
 
   const startCall = async (video: boolean) => {
     if (activeCall) await calls.join(activeCall.id);
@@ -63,11 +67,11 @@ export function ChatScreen({ conversationId, nav }: { conversationId: Id; nav: N
     <KeyboardAvoidingView style={common.screen} behavior="height">
       <View style={common.header}>
         <IconButton name="reply" label="Voltar" onPress={nav.back} />
-        {peer ? <Avatar user={peer} size={32} presence={presence} /> : <Icon name="hash" />}
+        {peer ? <Avatar user={peer} size={32} presence={presence} /> : <Icon name={conv.kind === 'voice' ? 'volume' : 'hash'} />}
         <Text style={common.headerTitle} numberOfLines={1}>
           {title}
         </Text>
-        {callsEnabled && myCallConv !== conversationId && (
+        {callsEnabled && !channel && myCallConv !== conversationId && (
           <>
             <IconButton name="phone" label="Chamada de voz" onPress={() => void startCall(false)} />
             <IconButton name="video" label="Chamada de vídeo" onPress={() => void startCall(true)} />
@@ -102,6 +106,11 @@ export function ChatScreen({ conversationId, nav }: { conversationId: Id; nav: N
         }}
       />
       <Typing conversationId={conversationId} />
+      {!canSend ? (
+        <Text style={[common.muted, { padding: space.md, textAlign: 'center' }]}>
+          Você não tem permissão para enviar mensagens em #{conv.name}.
+        </Text>
+      ) : (
       <Composer
         conversationId={conversationId}
         replyTo={replyTo}
@@ -111,6 +120,7 @@ export function ChatScreen({ conversationId, nav }: { conversationId: Id; nav: N
           setEditing(null);
         }}
       />
+      )}
       {actionsFor && (
         <Actions
           message={actionsFor}
@@ -134,6 +144,16 @@ const MessageRow = memo(function MessageRow({
 }) {
   const author = useNexus((s) => s.users[m.author_id]);
   const myId = useNexus((s) => s.me?.id);
+  // Server channels: nickname and role color.
+  const authorName = useNexus((s) => {
+    const sid = s.conversations[m.conversation_id]?.server_id;
+    return sid ? memberName(s, s.servers[sid], m.author_id) : (s.users[m.author_id]?.display_name ?? 'Usuário');
+  });
+  const authorColor = useNexus((s) => {
+    const sid = s.conversations[m.conversation_id]?.server_id;
+    const sv = sid ? s.servers[sid] : undefined;
+    return sv ? memberColor(sv, m.author_id) : undefined;
+  });
   const replyAuthor = useNexus((s) => (m.reply_to ? s.users[m.reply_to.author_id]?.display_name : undefined));
   const blocked = useNexus((s) => !!s.blocked[m.author_id]);
   if (blocked) return <Text style={[common.muted, { paddingHorizontal: space.md }]}>Mensagem de usuário bloqueado</Text>;
@@ -148,7 +168,7 @@ const MessageRow = memo(function MessageRow({
         )}
         {!compact && (
           <View style={common.row}>
-            <Text style={styles.author}>{author?.display_name ?? 'Usuário'}</Text>
+            <Text style={[styles.author, authorColor ? { color: authorColor } : null]}>{authorName}</Text>
             <Text style={styles.time}>{formatTime(m.created_at)}</Text>
           </View>
         )}
