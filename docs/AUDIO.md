@@ -126,9 +126,12 @@ a árvore de processos do Nexus, sem cabo virtual.
 
 ## Sons da interface
 
-Gerados por `scripts/gen-sounds.mjs` (síntese simples, sem assets de terceiros; o script é
-determinístico e grava os mesmos `.wav` em `apps/desktop/public/sounds/` e
-`apps/android/android/app/src/main/res/raw/`, ~550 KB no total).
+Gerados por `scripts/gen-sounds.mjs` (síntese própria, sem assets de terceiros; o script é
+determinístico e grava os mesmos `.wav` mono 48 kHz em `apps/desktop/public/sounds/` e
+`apps/android/android/app/src/main/res/raw/`, ~900 KB por app). Estilo parecido com o do
+Discord: "bloops" arredondados na região média (A3 a A5), com deslize de afinação no ataque,
+"pop" curto de FM em vez de clique, passa-baixa, sala pequena de reverb e volume igualado por
+loudness (bem abaixo do máximo). Os loops dobram a cauda do reverb no início, sem emenda.
 
 | Som | Quando |
 |---|---|
