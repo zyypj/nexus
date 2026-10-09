@@ -11,15 +11,26 @@ ouvintes  ─► WebAudio mix (ganho por participante 0–200%) ─► saída es
 
 - **Codec**: Opus, preset `speech`, **DTX** (não transmite silêncio) e **RED** (redundância
   contra perda de pacotes).
+- **Voz sempre mono**: com cancelamento de eco e AGC desligados o Chromium abre muitos microfones
+  em estéreo (ignora `channelCount: 1`), e o SFU aceita Opus estéreo em toda trilha de áudio; o
+  encoder manda quantos canais a trilha tiver. Um microfone desequilibrado (ou o RNNoise, que só
+  filtra o 1º canal) saía só no ouvido esquerdo de quem ouvia. `MicProcessor` (`call/noise.ts`)
+  mistura L+R em mono antes do RNNoise e, sem RNNoise, sempre que o microfone abre em estéreo.
 - **Echo cancellation / AGC**: WebRTC Audio Processing Module do Chromium (WebView2).
-- **VAD / indicador de fala**: `ActiveSpeakersChanged` do LiveKit (detecção no servidor SFU).
+- **Indicador de fala**: calculado em cada cliente (`call/speaking.ts`), para todos da chamada:
+  um `AnalyserNode` por microfone (o seu como é enviado; o dos outros como é decodificado), lido a
+  cada 50 ms, limiar ~ -36 dBFS e 350 ms de sustentação entre palavras. O `ActiveSpeakersChanged`
+  do LiveKit vem do SFU suavizado e atrasava o anel; medido em localhost, o indicador local acende
+  ~190 ms antes e apaga ~440 ms antes. (O SFU não repassa o nível por pacote, então
+  `getSynchronizationSources().audioLevel` não serve.)
 - **Mute**: a trilha é mutada (para de enviar; o microfone continua aberto para desmutar sem
   atraso). **Deafen**: volume local de todos = 0 **e** mute automático; ao sair do deafen o mute
   volta ao estado anterior.
 - **Push-to-talk**: hooks globais do Windows (funciona minimizado/em jogo), atraso de soltura
   configurável (padrão 200 ms) para não cortar a última sílaba.
-- **Volume individual**: local, 0–200%, por usuário (WebAudio `GainNode` via `webAudioMix`), e
-  "silenciar para mim". Não altera o que os outros ouvem.
+- **Volume individual**: local, 0–300%, por usuário (WebAudio `GainNode` via `webAudioMix`), e
+  "silenciar para mim". Não altera o que os outros ouvem. O áudio da transmissão de cada pessoa
+  tem volume e silenciar próprios (botão direito na transmissão ou na pessoa).
 - Um único `AudioContext` de 48 kHz para tudo (mix, RNNoise, áudio do sistema); suspenso fora
   de chamadas.
 

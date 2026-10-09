@@ -29,7 +29,8 @@ import {
 import { playSound, startLoop, stopLoop } from "../lib/sounds";
 import { type ParticipantView, idleCall as idle, setCallUi as setUi, useCall } from "./callStore";
 import { releaseAudio, resumeAudio, sharedAudioContext } from "./audioContext";
-import { RnnoiseProcessor } from "./noise";
+import { MicProcessor } from "./noise";
+import { SpeakingDetector } from "./speaking";
 import { type Limitation, QualityGovernor, type QualityPreset, autoStart, preset } from "./screenQuality";
 import { type CaptureSource, NativeScreenCapture } from "./nativeScreen";
 import { type CaptureMode, SystemAudioCapture } from "./systemAudio";
@@ -47,6 +48,14 @@ function audioConstraints(fallback = false) {
     channelCount: 1,
   };
 }
+
+/**
+ * Voice is mono. With echo cancellation and AGC both off Chromium opens many
+ * mics in stereo despite `channelCount: 1`, and LiveKit would then flag the
+ * track as stereo (and drop DTX/RED). The audio itself is downmixed by
+ * MicProcessor (see applyNoiseMode).
+ */
+const MIC_PUBLISH = { forceStereo: false };
 
 /**
  * Screen share codec by content:
@@ -67,7 +76,8 @@ export class CallManager {
   room: Room | null = null;
   private wantMuted = false;
   private mutedBeforeDeafen = false;
-  private rnnoise: RnnoiseProcessor | null = null;
+  private micProcessor: MicProcessor | null = null;
+  private noiseChain: Promise<void> = Promise.resolve();
   private systemAudio: SystemAudioCapture | null = null;
   private screenAudioPub: LocalTrackPublication | null = null;
   private nativeScreen: NativeScreenCapture | null = null;
@@ -79,12 +89,19 @@ export class CallManager {
   private leaving = false;
   private callingTimer: ReturnType<typeof setTimeout> | null = null;
   private watchedMic: LocalAudioTrack | null = null;
+  private speaking: SpeakingDetector | null = null;
 
   constructor() {
     this.wantMuted = useCall.getState().muted;
     // Reapply local volumes when the user changes them in settings.
     useSettings.subscribe((s, prev) => {
-      if (s.volumes !== prev.volumes || s.localMutes !== prev.localMutes) this.applyVolumes();
+      if (
+        s.volumes !== prev.volumes ||
+        s.localMutes !== prev.localMutes ||
+        s.streamVolumes !== prev.streamVolumes ||
+        s.streamMutes !== prev.streamMutes
+      )
+        this.applyVolumes();
       if (s.outputDeviceId !== prev.outputDeviceId && this.room)
         void this.room.switchActiveDevice("audiooutput", s.outputDeviceId);
     });
@@ -141,6 +158,7 @@ export class CallManager {
       disconnectOnPageLeave: true,
     });
     this.room = room;
+    this.speaking = new SpeakingDetector(room, () => this.refresh());
     this.wire(room);
     navigator.mediaDevices.addEventListener("devicechange", this.onDeviceChange);
     try {
@@ -154,6 +172,7 @@ export class CallManager {
     if (this.rejoinAttempt === 0) playSound("join");
     this.rejoinAttempt = 0;
     setUi({ status: "connected" });
+    this.speaking?.start();
     await this.publishMic();
     this.refresh();
     this.syncServerState();
@@ -179,14 +198,16 @@ export class CallManager {
     if (this.statsTimer) clearTimeout(this.statsTimer);
     this.statsTimer = null;
     await this.stopSystemAudio();
+    this.speaking?.stop();
+    this.speaking = null;
     const room = this.room;
     this.room = null;
     navigator.mediaDevices.removeEventListener("devicechange", this.onDeviceChange);
     this.watchedMic = null;
     if (room) await room.disconnect(true);
     for (const el of document.querySelectorAll("audio[data-nexus-audio]")) el.remove();
-    await this.rnnoise?.destroy();
-    this.rnnoise = null;
+    await this.micProcessor?.destroy();
+    this.micProcessor = null;
     this.governor = null;
     if (resetUi) setUi({ ...idle, muted: this.wantMuted, deafened: useCall.getState().deafened });
     void releaseAudio();
@@ -209,7 +230,6 @@ export class CallManager {
         playSound("leave");
         refresh();
       })
-      .on(RoomEvent.ActiveSpeakersChanged, refresh)
       .on(RoomEvent.TrackMuted, refresh)
       .on(RoomEvent.TrackUnmuted, refresh)
       .on(RoomEvent.TrackSubscribed, (track) => {
@@ -290,11 +310,11 @@ export class CallManager {
     if (!room) return;
     try {
       try {
-        await room.localParticipant.setMicrophoneEnabled(true, audioConstraints());
+        await room.localParticipant.setMicrophoneEnabled(true, audioConstraints(), MIC_PUBLISH);
       } catch (e) {
         // The chosen mic is gone: use the Windows default, and say so.
         if (!micDeviceId() || !isDeviceError(e)) throw e;
-        await room.localParticipant.setMicrophoneEnabled(true, audioConstraints(true));
+        await room.localParticipant.setMicrophoneEnabled(true, audioConstraints(true), MIC_PUBLISH);
         this.warnFallback();
       }
     } catch (e) {
@@ -327,7 +347,11 @@ export class CallManager {
     const track = this.micTrack();
     if (!track || this.watchedMic === track) return;
     this.watchedMic = track;
-    track.on(TrackEvent.Restarted, () => void this.ensureChosenMic());
+    track.on(TrackEvent.Restarted, () => {
+      // The new device may open in stereo where the old one was mono.
+      void this.applyNoiseMode();
+      void this.ensureChosenMic();
+    });
     void this.ensureChosenMic();
   }
 
@@ -365,37 +389,54 @@ export class CallManager {
     this.refresh();
   }
 
-  async applyNoiseMode() {
-    const track = this.micPub()?.track as LocalAudioTrack | undefined;
+  /**
+   * Mic processor for the current settings and device: RNNoise in Enhanced
+   * mode, a plain mono downmix for a mic that opened in stereo, else none.
+   * Serialized: device restarts and settings changes can overlap.
+   */
+  applyNoiseMode(): Promise<void> {
+    this.noiseChain = this.noiseChain.then(() => this.updateMicProcessor()).catch(() => undefined);
+    return this.noiseChain;
+  }
+
+  private async updateMicProcessor() {
+    const track = this.micTrack();
     if (!track) return;
-    const mode = settings().noise;
-    if (mode === "enhanced") {
-      if (!this.rnnoise) {
-        this.rnnoise = new RnnoiseProcessor();
-        try {
-          await track.setProcessor(this.rnnoise);
-        } catch (e) {
-          this.rnnoise = null;
-          setUi({ error: `Supressão avançada indisponível: ${(e as Error).message}` });
-        }
-      }
-    } else if (this.rnnoise) {
+    const stereo = (track.getSourceTrackSettings().channelCount ?? 1) > 1;
+    const denoise = settings().noise === "enhanced";
+    const want = denoise || stereo;
+    if (this.micProcessor && want && this.micProcessor.denoise === denoise) return;
+    if (!this.micProcessor && !want) return;
+    if (this.micProcessor) {
       await track.stopProcessor();
-      this.rnnoise = null;
+      this.micProcessor = null;
+    }
+    if (!want) return;
+    try {
+      const processor = new MicProcessor(denoise);
+      await track.setProcessor(processor);
+      this.micProcessor = processor;
+    } catch (e) {
+      if (denoise) setUi({ error: `Supressão avançada indisponível: ${(e as Error).message}` });
+      // Without RNNoise a stereo mic still needs the downmix.
+      if (denoise && stereo) {
+        const processor = new MicProcessor(false);
+        await track.setProcessor(processor).then(() => (this.micProcessor = processor), () => undefined);
+      }
     }
   }
 
   /**
-   * Re-acquires the mic with new constraints (device, NS, AEC, AGC). RNNoise
-   * is detached first and re-attached to the new track, and a failed switch
+   * Re-acquires the mic with new constraints (device, NS, AEC, AGC). The mic
+   * processor is detached first and re-attached to the new track, and a failed switch
    * falls back to the system default so the call never ends up silent.
    */
   async restartMic() {
     const track = this.micTrack();
     if (!track) return;
-    if (this.rnnoise) {
+    if (this.micProcessor) {
       await track.stopProcessor().catch(() => undefined);
-      this.rnnoise = null;
+      this.micProcessor = null;
     }
     try {
       await track.restartTrack(audioConstraints());
@@ -482,16 +523,19 @@ export class CallManager {
 
   // ---------- playback ----------
 
-  /** Local-only volumes (0..300%) and mutes; deafen silences everyone. */
+  /**
+   * Local-only volumes (0..300%) and mutes, voice and stream audio set apart
+   * (right-click the person / the stream); deafen silences everyone.
+   */
   applyVolumes() {
     const room = this.room;
     if (!room) return;
     const s = settings();
     const deaf = useCall.getState().deafened;
     for (const p of room.remoteParticipants.values()) {
-      const v = deaf || s.localMutes[p.identity] ? 0 : (s.volumes[p.identity] ?? 1);
-      p.setVolume(v, Track.Source.Microphone);
-      p.setVolume(deaf ? 0 : v, Track.Source.ScreenShareAudio);
+      const id = p.identity;
+      p.setVolume(deaf || s.localMutes[id] ? 0 : (s.volumes[id] ?? 1), Track.Source.Microphone);
+      p.setVolume(deaf || s.streamMutes[id] ? 0 : (s.streamVolumes[id] ?? 1), Track.Source.ScreenShareAudio);
     }
   }
 
@@ -754,7 +798,7 @@ export class CallManager {
         identity: p.identity,
         name: p.name || p.identity,
         isLocal,
-        speaking: p.isSpeaking,
+        speaking: this.speaking?.isSpeaking(p.identity) ?? false,
         micMuted: !mic || mic.isMuted,
         hasCamera: !!p.getTrackPublication(Track.Source.Camera)?.track && !p.getTrackPublication(Track.Source.Camera)?.isMuted,
         hasScreen: !!p.getTrackPublication(Track.Source.ScreenShare)?.track,

@@ -298,7 +298,7 @@ function VoiceMember({
     const sv = s.servers[serverId];
     return sv ? memberColor(sv, userId) : undefined;
   });
-  const speaking = useCall((s) => inMyCall && s.participants.some((p) => p.identity === userId && p.speaking));
+  const speaking = useCall((s) => inMyCall && s.participants.some((p) => p.identity === userId && p.speaking && !p.micMuted));
   return (
     <li
       className={`voice-member${speaking ? " speaking" : ""}`}

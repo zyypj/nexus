@@ -30,6 +30,10 @@ export interface Settings {
   volumes: Record<string, number>;
   /** userId -> locally muted. */
   localMutes: Record<string, boolean>;
+  /** userId -> local volume of their screen share audio (1 = 100%). */
+  streamVolumes: Record<string, number>;
+  /** userId -> their screen share audio muted locally. */
+  streamMutes: Record<string, boolean>;
   closeToTray: boolean;
   notifications: boolean;
   /** UI sounds (calls, mute, messages) and their volume 0..1. */
@@ -55,6 +59,8 @@ const defaults: Settings = {
   screenQuality: "auto",
   volumes: {},
   localMutes: {},
+  streamVolumes: {},
+  streamMutes: {},
   closeToTray: true,
   notifications: true,
   sounds: true,

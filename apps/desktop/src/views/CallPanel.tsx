@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { type ParticipantView, calls, useCall } from "../call/callStore";
 import { Avatar } from "../components/Avatar";
 import { openContextMenu } from "../components/ContextMenu";
-import { volumeEntry } from "../components/UserVolume";
+import { streamVolumeEntry, volumeEntry } from "../components/UserVolume";
 import { Icon } from "../components/Icon";
 import { client, useNexus } from "../lib/nexus";
 import { userMenu } from "./menus";
@@ -59,7 +59,20 @@ function ScreenTile({ participant }: { participant: ParticipantView }) {
   const ref = useAttachedVideo(participant.identity, "screen_share");
   const [full, setFull] = useState(false);
   return (
-    <div className={`screen-tile${full ? " full" : ""}`}>
+    <div
+      className={`screen-tile${full ? " full" : ""}`}
+      onContextMenu={(e) =>
+        // Stream audio volume, apart from the person's voice. You never hear your own stream.
+        openContextMenu(e, () => [
+          !participant.isLocal &&
+            (participant.hasScreenAudio
+              ? streamVolumeEntry(participant.identity)
+              : { label: "Esta transmissão está sem áudio", icon: "volume", disabled: true }),
+          { separator: true },
+          { label: full ? "Sair da tela cheia" : "Tela cheia", icon: "maximize", run: () => setFull((f) => !f) },
+        ])
+      }
+    >
       <video ref={ref} autoPlay playsInline muted />
       <div className="tile-label">
         <Icon name="screen" size={14} /> {participant.name}
@@ -96,6 +109,7 @@ const ParticipantTile = memo(function ParticipantTile({
         const serverId = (conv && client().store.getState().conversations[conv]?.server_id) || null;
         openContextMenu(e, () => [
           !p.isLocal && volumeEntry(p.identity),
+          !p.isLocal && p.hasScreenAudio && streamVolumeEntry(p.identity),
           { separator: true },
           ...userMenu(p.identity, at, serverId),
         ]);
