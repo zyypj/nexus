@@ -82,8 +82,8 @@ android {
         applicationId "app.nexus.android"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 205
-        versionName "0.2.5"
+        versionCode 206
+        versionName "0.2.6"
         // Plain http:// servers are allowed by res/xml/network_security_config.xml
         // (the React Native plugin overrides this placeholder to "false" in
         // release builds, so it is not what enables cleartext).
