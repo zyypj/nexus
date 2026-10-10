@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-08 (versão 0.2.5).
+Última atualização: 2026-10-10 (versão 0.2.8).
 
 ## Fase atual
 
@@ -89,6 +89,22 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
+
+## 0.2.8 — palco da chamada e arrastar e soltar (Windows)
+
+- **Palco da chamada no estilo do Discord:** grade automática ou um bloco ampliado com faixa de
+  miniaturas (câmeras e transmissões); com mais de uma transmissão escolhe-se qual assistir
+  ("Assistir" / "Parar de assistir", o áudio da transmissão acompanha); tela cheia real; área
+  redimensionável arrastando a borda, e "Ocultar chat". Detalhes em docs/SCREEN_SHARE.md.
+- **Arrastar e soltar:** ordem dos servidores na barra (local), categorias, canais (inclusive
+  entre categorias) e pessoas entre canais de voz. Detalhes em docs/SERVERS.md.
+- **Servidor:** permissão nova "Mover membros" (bit 17), `POST /api/servers/{id}/voice/move` e
+  evento `CALL_MOVE`. Quem move precisa do servidor **e** do app novos; quem é movido, do app novo.
+- Verificado: palco num harness no navegador com trilhas falsas; arrastar e soltar com arraste
+  real no navegador contra um servidor local (ordem, categoria, canal, pedido de mover → 204);
+  teste de integração `moving_members_between_voice_channels`. **Não verificado:** dentro do
+  Tauri/WebView2 (tela cheia da janela, arraste), com LiveKit real (duas transmissões, pessoa
+  movida trocando de sala) e no Android (só o `onCallMove` foi ligado, typecheck ok).
 
 ## 0.2.5 — Android: visualizador de mídia e visual novo
 

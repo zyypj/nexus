@@ -28,7 +28,7 @@ Bits em `services/server/src/permissions.rs` (espelhados em `packages/protocol`)
 | Administrador | Criar convites | Ver canais | Conectar |
 | Gerenciar servidor | Expulsar | Enviar mensagens | Falar |
 | Gerenciar cargos | Banir | Enviar arquivos | Vídeo e tela |
-| Gerenciar canais | Mudar o próprio apelido | Adicionar reações | |
+| Gerenciar canais | Mudar o próprio apelido | Adicionar reações | Mover membros |
 | | Gerenciar apelidos | Gerenciar mensagens | |
 
 Cálculo (igual ao do Discord):
@@ -52,6 +52,13 @@ servidor (só os canais que pode ver, com as permissões dele). Com algumas deze
 servidor, mandar a visão inteira a cada mudança é barato e evita bugs de sincronização. As
 mensagens dos canais vão só para quem pode ver o canal.
 
+**Mover membros** (`POST /api/servers/{id}/voice/move`, `{ user_id, channel_id }`): quem tem a
+permissão leva alguém que está num canal de voz do servidor para outro. O servidor só abre a
+chamada de destino e manda `CALL_MOVE` **para a pessoa movida**; o app dela (o aparelho que está
+naquela chamada) entra na nova, o que já sai da antiga, como numa troca de canal normal. Por isso
+quem move e quem é movido precisam de "Ver canais" + "Conectar" no destino. Apps antigos ignoram
+o evento (a pessoa simplesmente não é movida).
+
 Canais de voz **não tocam** (as pessoas entram e saem); mensagens de canais não geram
 notificação nem som (só ficam como não lidas).
 
@@ -61,7 +68,11 @@ notificação nem som (só ficam como não lidas).
   de voz (com mutado/ensurdecido/ao vivo e anel de fala), lista de membros agrupada por cargo
   com cores, cartão de membro, convite com código para copiar, configurações do servidor
   (visão geral, cargos, membros, convites, banimentos) e do canal/categoria (nome, tópico,
-  permissões por cargo com negar/herdar/permitir).
+  permissões por cargo com negar/herdar/permitir). **Arrastar e soltar:** ícones da barra de
+  servidores (ordem guardada só neste aparelho), categorias (pelo cabeçalho), canais (reordena
+  entre os do mesmo tipo, pois texto fica acima de voz; soltar num canal ou no cabeçalho de outra
+  categoria muda de categoria) e pessoas entre canais de voz (você mesmo sempre; os outros com
+  "Mover membros"). O mesmo existe no botão direito: "Mover para a categoria" e "Mover para".
 - **Android:** aba Servidores, entrar por código / criar, canais de texto (com tudo do chat) e
   de voz, convite pelo compartilhamento do Android. Cargos/permissões/moderação ficam no Windows
   por enquanto.
@@ -76,7 +87,7 @@ notificação nem som (só ficam como não lidas).
 `PUT /api/servers/{id}/roles/order` · `PATCH|DELETE /api/servers/{id}/roles/{role}` ·
 `POST /api/servers/{id}/categories` · `PATCH|DELETE /api/servers/{id}/categories/{cat}` ·
 `POST /api/servers/{id}/channels` · `PATCH|DELETE /api/servers/{id}/channels/{ch}` ·
-`PUT /api/servers/{id}/layout` · `PUT|DELETE /api/servers/{id}/overwrites/{alvo}/{cargo}`.
+`PUT /api/servers/{id}/layout` · `POST /api/servers/{id}/voice/move` · `PUT|DELETE /api/servers/{id}/overwrites/{alvo}/{cargo}`.
 
 Testes: `services/server/tests/servers.rs` (estrutura, convites, eventos, canais privados,
 hierarquia, banimento, canais de voz) e `src/permissions.rs` (motor de permissões).

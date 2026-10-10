@@ -157,6 +157,7 @@ pub fn router(state: AppState) -> Router {
             patch(servers::update_channel).delete(servers::delete_channel),
         )
         .route("/servers/{id}/layout", put(servers::layout))
+        .route("/servers/{id}/voice/move", post(calls::move_member))
         .route(
             "/servers/{id}/overwrites/{target_id}/{role_id}",
             put(servers::put_overwrite).delete(servers::delete_overwrite),

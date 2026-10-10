@@ -1,4 +1,4 @@
-import type { AuthResponse, Id, Message } from "@nexus/protocol";
+import type { AuthResponse, GatewayEvents, Id, Message } from "@nexus/protocol";
 import { ApiClient, type TokenStore, type UploadSource } from "./api";
 import { GatewayClient } from "./gateway";
 import {
@@ -21,6 +21,8 @@ export interface NexusClientOptions {
   deviceName: string;
   /** Called for messages from others that the user is not looking at. */
   onNotify?: (message: Message, state: NexusState) => void;
+  /** Someone moved this user to another voice channel (see `CALL_MOVE`). */
+  onCallMove?: (move: GatewayEvents["CALL_MOVE"]) => void;
   /** Called when the session is gone (revoked/expired): the app shows login. */
   onLoggedOut?: () => void;
   /** Whether the app window is focused/visible (unread + notification decisions). */
@@ -76,6 +78,9 @@ export class NexusClient {
           break;
         case "TYPING_START":
           this.scheduleTypingSweep();
+          break;
+        case "CALL_MOVE":
+          this.opts.onCallMove?.(frame.d);
           break;
         default:
           break;

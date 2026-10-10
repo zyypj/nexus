@@ -97,9 +97,11 @@ export const Permissions = {
   ADMINISTRATOR: 1 << 14,
   CHANGE_NICKNAME: 1 << 15,
   MANAGE_NICKNAMES: 1 << 16,
+  /** Move other members between voice channels. */
+  MOVE_MEMBERS: 1 << 17,
 } as const;
 export type PermissionName = keyof typeof Permissions;
-export const ALL_PERMISSIONS = (1 << 17) - 1;
+export const ALL_PERMISSIONS = (1 << 18) - 1;
 /** Permissions that can be overridden per channel/category. */
 export const CHANNEL_PERMISSIONS =
   Permissions.VIEW_CHANNEL |
@@ -342,6 +344,11 @@ export interface GatewayEvents {
   CALL_LEAVE: { call_id: Id; conversation_id: Id; user_id: Id };
   CALL_STATE_UPDATE: { call_id: Id; conversation_id: Id; participant: CallParticipant };
   CALL_END: { call_id: Id; conversation_id: Id };
+  /**
+   * Only for the member being moved to another voice channel: the device that
+   * is in `from_call_id` joins `call_id` (which leaves the old call).
+   */
+  CALL_MOVE: { call_id: Id; conversation_id: Id; from_call_id: Id; moved_by: Id };
   /** Joined or created a server. */
   SERVER_CREATE: ServerView;
   /** Anything changed (members, roles, channels…): the full view again. */

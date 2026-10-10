@@ -1000,16 +1000,32 @@ button.link {
   padding: var(--space-md);
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
-  max-height: 62%;
-  min-height: 200px;
+  gap: var(--space-sm);
+  /* Height against the chat below: flex-basis set inline (drag the bottom edge). */
+  flex: 0 0 40%;
+  min-height: 180px;
+  max-height: calc(100% - 200px);
   overflow: hidden;
 }
-.call-panel.has-screen .call-grid {
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  grid-auto-rows: 90px;
-  max-height: 100px;
-  overflow: hidden;
+.call-panel.solo,
+.call-panel.expanded {
+  flex: 1;
+  max-height: none;
+  border-bottom: 0;
+}
+.chat.call-expanded .chat-body {
+  display: none;
+}
+.call-panel.full {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  max-height: none;
+  border: 0;
+  background: #000;
+}
+.call-panel.full.idle {
+  cursor: none;
 }
 .call-status {
   position: absolute;
@@ -1020,15 +1036,34 @@ button.link {
   z-index: 2;
 }
 .call-grid {
-  display: grid;
-  gap: var(--space-sm);
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  grid-auto-rows: minmax(140px, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden auto;
+}
+.stage-main {
+  position: relative;
   flex: 1;
   min-height: 0;
 }
+.stage-strip {
+  display: flex;
+  justify-content: safe center;
+  gap: 8px;
+  flex-shrink: 0;
+  overflow: auto hidden;
+}
+.stage-strip .tile {
+  width: 168px;
+  flex-shrink: 0;
+}
 .tile {
   position: relative;
+  aspect-ratio: 16 / 9;
   background: var(--c-surface);
   border-radius: var(--radius-md);
   display: flex;
@@ -1036,19 +1071,35 @@ button.link {
   justify-content: center;
   overflow: hidden;
   border: 2px solid transparent;
+  cursor: pointer;
 }
-.tile.speaking {
-  border-color: var(--c-speaking);
+.tile:not(.big):hover {
+  border-color: var(--c-border);
 }
-.tile video,
-.screen-tile video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+.tile.big {
+  position: absolute;
+  inset: 0;
+  aspect-ratio: auto;
+  cursor: default;
   background: #000;
 }
+.tile.big.empty {
+  background: var(--c-surface);
+}
+.tile.speaking,
+.tile.speaking:hover {
+  border-color: var(--c-speaking);
+}
 .tile video {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
+  background: #000;
+}
+/* A shared screen, and whatever is enlarged, is shown whole. */
+.tile.screen video,
+.tile.big video {
+  object-fit: contain;
 }
 video.mirror {
   transform: scaleX(-1);
@@ -1057,6 +1108,7 @@ video.mirror {
   position: absolute;
   left: 6px;
   bottom: 6px;
+  max-width: calc(100% - 12px);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1064,34 +1116,139 @@ video.mirror {
   border-radius: var(--radius-sm);
   padding: 2px 8px;
   font-size: var(--fs-sm);
+  white-space: nowrap;
 }
-.tile-screen-btn {
+.tile-label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tile-label svg {
+  flex-shrink: 0;
+}
+.tile-live {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  background: var(--c-danger);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tile-watch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+/* Thumbnails have no room for the avatar above the name label. */
+.stage-strip .tile-watch {
+  margin-bottom: 18px;
+}
+.stage-strip .tile-watch .avatar {
+  display: none;
+}
+.tile-watch-btn {
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.tile:hover /* Thumbnails have no room for the avatar above the name label. */
+.stage-strip .tile-watch {
+  margin-bottom: 18px;
+}
+.stage-strip .tile-watch .avatar {
+  display: none;
+}
+.tile-watch-btn {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: #fff;
+}
+.tile-actions {
   position: absolute;
   right: 6px;
-  top: 6px;
-  background: rgba(0, 0, 0, 0.6);
+  bottom: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.tile:hover .tile-actions,
+.tile-actions:focus-within {
+  opacity: 1;
+}
+.tile-actions button {
+  display: flex;
+  background: rgba(0, 0, 0, 0.65);
   border-radius: var(--radius-sm);
-  padding: 4px;
+  padding: 5px;
   color: var(--c-text);
 }
-.screen-tile {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  border-radius: var(--radius-md);
-  overflow: hidden;
+.tile-actions button:hover {
+  background: var(--c-accent);
+  color: #fff;
 }
-.screen-tile.full {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  border-radius: 0;
-}
-.screen-tile .fullscreen {
+/* Layout buttons over the top right corner, shown while the pointer is on the call. */
+.stage-bar {
   position: absolute;
+  top: 8px;
   right: 8px;
-  bottom: 8px;
-  background: rgba(0, 0, 0, 0.6);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: rgba(0, 0, 0, 0.65);
+  border-radius: var(--radius-md);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.call-panel:hover .stage-bar,
+.stage-bar:focus-within {
+  opacity: 1;
+}
+.call-panel.idle .stage-bar,
+.call-panel.idle .tile-actions {
+  opacity: 0;
+}
+.stage-bar-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--c-border);
+}
+.call-resize {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 7px;
+  cursor: ns-resize;
+  z-index: 4;
+  touch-action: none;
+}
+.call-resize::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 44px;
+  height: 3px;
+  margin-left: -22px;
+  border-radius: 3px;
+  background: var(--c-border);
+  transition: background-color 0.12s;
+}
+.call-resize:hover::after,
+.call-resize.dragging::after {
+  background: var(--c-accent);
 }
 .screen-info {
   display: flex;

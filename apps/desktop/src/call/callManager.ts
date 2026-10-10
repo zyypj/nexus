@@ -33,6 +33,7 @@ import { MicProcessor } from "./noise";
 import { SpeakingDetector } from "./speaking";
 import { type Limitation, QualityGovernor, type QualityPreset, autoStart, preset } from "./screenQuality";
 import { type CaptureSource, NativeScreenCapture } from "./nativeScreen";
+import { syncStage, watchStream } from "./stageLayout";
 import { type CaptureMode, SystemAudioCapture } from "./systemAudio";
 
 /** Mic capture options; `fallback` = the system default instead of the chosen device. */
@@ -90,6 +91,8 @@ export class CallManager {
   private callingTimer: ReturnType<typeof setTimeout> | null = null;
   private watchedMic: LocalAudioTrack | null = null;
   private speaking: SpeakingDetector | null = null;
+  /** Remote streams already seen, to tell a new one from one the user closed. */
+  private knownStreams = new Set<Id>();
 
   constructor() {
     this.wantMuted = useCall.getState().muted;
@@ -137,7 +140,15 @@ export class CallManager {
     this.leaving = false;
     const pre = useCall.getState();
     this.wantMuted = pre.muted;
-    setUi({ ...idle, status: "connecting", callId, conversationId, muted: pre.muted, deafened: pre.deafened });
+    setUi({
+      ...idle,
+      status: "connecting",
+      callId,
+      conversationId,
+      muted: pre.muted,
+      deafened: pre.deafened,
+      stageExpanded: pre.stageExpanded,
+    });
     await resumeAudio();
     const s = settings();
     const room = new Room({
@@ -209,6 +220,7 @@ export class CallManager {
     await this.micProcessor?.destroy();
     this.micProcessor = null;
     this.governor = null;
+    this.knownStreams.clear();
     if (resetUi) setUi({ ...idle, muted: this.wantMuted, deafened: useCall.getState().deafened });
     void releaseAudio();
   }
@@ -525,18 +537,26 @@ export class CallManager {
 
   /**
    * Local-only volumes (0..300%) and mutes, voice and stream audio set apart
-   * (right-click the person / the stream); deafen silences everyone.
+   * (right-click the person / the stream); deafen silences everyone. A stream
+   * is only heard while it is being watched.
    */
   applyVolumes() {
     const room = this.room;
     if (!room) return;
     const s = settings();
-    const deaf = useCall.getState().deafened;
+    const { deafened: deaf, watching } = useCall.getState();
     for (const p of room.remoteParticipants.values()) {
       const id = p.identity;
+      const streamOff = deaf || s.streamMutes[id] || !watching.includes(id);
       p.setVolume(deaf || s.localMutes[id] ? 0 : (s.volumes[id] ?? 1), Track.Source.Microphone);
-      p.setVolume(deaf || s.streamMutes[id] ? 0 : (s.streamVolumes[id] ?? 1), Track.Source.ScreenShareAudio);
+      p.setVolume(streamOff ? 0 : (s.streamVolumes[id] ?? 1), Track.Source.ScreenShareAudio);
     }
+  }
+
+  /** Starts/stops watching someone's screen share (its video and its audio). */
+  watchStream(identity: Id, on: boolean) {
+    setUi(watchStream(useCall.getState(), identity, on));
+    this.applyVolumes();
   }
 
   // ---------- camera ----------
@@ -810,7 +830,13 @@ export class CallManager {
       view(room.localParticipant, true),
       ...[...room.remoteParticipants.values()].map((p: RemoteParticipant) => view(p, false)),
     ];
-    setUi({ participants });
+    // Watched streams and the enlarged tile follow who is still sharing.
+    const ui = useCall.getState();
+    const stage = syncStage(ui, participants, this.knownStreams);
+    this.knownStreams = new Set(participants.filter((p) => p.hasScreen && !p.isLocal).map((p) => p.identity));
+    if (stage === ui) return setUi({ participants });
+    setUi({ participants, watching: stage.watching, focus: stage.focus });
+    this.applyVolumes();
   }
 
   videoTrack(identity: Id, source: "camera" | "screen_share") {

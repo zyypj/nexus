@@ -1405,3 +1405,44 @@
   opacity: 0.4;
   cursor: default;
 }
+
+/* ---------- drag & drop (server bar, categories, channels, people in voice) ---------- */
+.drop-before,
+.drop-after {
+  position: relative;
+}
+.drop-before::after,
+.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--c-accent);
+  pointer-events: none;
+  z-index: 5;
+}
+.drop-before::after {
+  top: -2px;
+}
+.drop-after::after {
+  bottom: -2px;
+}
+/* The bar has an 8px gap between icons: the line sits in the middle of it. */
+.rail-item.drop-before::after,
+.rail-item.drop-after::after {
+  left: 16px;
+  right: 16px;
+}
+.rail-item.drop-before::after {
+  top: -6px;
+}
+.rail-item.drop-after::after {
+  bottom: -6px;
+}
+.drop-into {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--c-accent) 18%, transparent);
+  box-shadow: inset 0 0 0 1px var(--c-accent);
+}

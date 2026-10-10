@@ -408,3 +408,81 @@ async fn deleting_a_server_removes_it_for_everyone() {
     let (status, _) = owner.get(&format!("/api/conversations/{geral}/messages")).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "channels are gone");
 }
+
+#[tokio::test]
+async fn moving_members_between_voice_channels() {
+    let s = TestServer::start().await;
+    let owner = s.register("anfitriao").await;
+    let guest = s.register("convidado").await;
+    let mover = s.register("ajudante").await;
+    let view = create_server(&owner, "Salas").await;
+    let sid = view["id"].as_str().unwrap().to_string();
+    let lobby = channel(&view, "Geral")["id"].as_str().unwrap().to_string();
+    let text = channel(&view, "geral")["id"].as_str().unwrap().to_string();
+    join(&owner, &sid, &guest).await;
+    join(&owner, &sid, &mover).await;
+    let (status, _) = owner
+        .post(
+            &format!("/api/servers/{sid}/channels"),
+            json!({ "name": "Jogos", "kind": "voice" }),
+        )
+        .await;
+    assert!(status.is_success());
+    let (_, view) = owner.get(&format!("/api/servers/{sid}")).await;
+    let games = channel(&view, "Jogos")["id"].as_str().unwrap().to_string();
+    let move_to = |channel: &str| json!({ "user_id": guest.id, "channel_id": channel });
+    let path = format!("/api/servers/{sid}/voice/move");
+
+    // Not in a voice channel yet: nothing to move.
+    let (status, _) = owner.post(&path, move_to(&games)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    let (_, joined) = guest.post(&format!("/api/conversations/{lobby}/call"), json!({})).await;
+    let from_call = joined["call"]["id"].as_str().unwrap().to_string();
+    let (mut gw, _) = Gateway::connect(&s, &guest.token).await;
+
+    // Needs Move Members; text channels are not a destination.
+    let (status, _) = mover.post(&path, move_to(&games)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = owner.post(&path, move_to(&text)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // Same channel: nothing happens.
+    let (status, _) = owner.post(&path, move_to(&lobby)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    gw.assert_no_event("CALL_MOVE", 200).await;
+
+    // A role with Move Members is enough; the member is told where to go.
+    let role = create_role(&owner, &sid, "Organização", p::MOVE_MEMBERS).await;
+    assert_eq!(
+        set_roles(&owner, &sid, &mover.id, &[&role]).await,
+        StatusCode::NO_CONTENT
+    );
+    let (status, body) = mover.post(&path, move_to(&games)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let moved = gw.next_event("CALL_MOVE").await;
+    assert_eq!(moved["conversation_id"], games.as_str());
+    assert_eq!(moved["from_call_id"], from_call.as_str());
+    assert_eq!(moved["moved_by"], mover.id.as_str());
+
+    // Their client joins the new call, which leaves the old one.
+    let target_call = moved["call_id"].as_str().unwrap();
+    let (status, joined) = guest.post(&format!("/api/calls/{target_call}/join"), json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{joined}");
+    assert_eq!(joined["call"]["conversation_id"], games.as_str());
+    let (_, calls) = owner.get("/api/calls").await;
+    let calls = calls.as_array().unwrap();
+    assert_eq!(calls.len(), 1, "the emptied lobby call ended: {calls:?}");
+    assert_eq!(calls[0]["participants"][0]["user_id"], guest.id.as_str());
+
+    // A member who may not connect to the destination is not moved there.
+    owner
+        .req(
+            reqwest::Method::PUT,
+            &format!("/api/servers/{sid}/overwrites/{lobby}/{sid}"),
+            Some(json!({ "allow": 0, "deny": p::CONNECT })),
+        )
+        .await;
+    let (status, _) = owner.post(&path, move_to(&lobby)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}

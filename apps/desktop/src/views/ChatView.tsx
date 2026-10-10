@@ -23,6 +23,7 @@ export function ChatView({ conversationId }: { conversationId: Id }) {
   const activeCall = useNexus((s) => callForConversation(s, conversationId));
   const callsEnabled = useNexus((s) => s.server?.calls_enabled ?? false);
   const myCallConv = useCall((s) => s.conversationId);
+  const callExpanded = useCall((s) => s.stageExpanded);
   const [replyTo, setReplyTo] = useState<Id | null>(null);
   const [dropped, setDropped] = useState<File[] | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -60,7 +61,7 @@ export function ChatView({ conversationId }: { conversationId: Id }) {
   };
 
   return (
-    <section className="chat">
+    <section className={`chat${inThisCall && callExpanded ? " call-expanded" : ""}`}>
       <header className="header">
         {conv.kind === "dm" ? (
           <Avatar user={peerUser ?? peer} size={28} presence={presence} />
@@ -104,7 +105,7 @@ export function ChatView({ conversationId }: { conversationId: Id }) {
 
       {conv.kind === "voice" ? (
         inThisCall ? (
-          <CallPanel />
+          <CallPanel solo />
         ) : (
           <VoiceLobby channel={conv} />
         )

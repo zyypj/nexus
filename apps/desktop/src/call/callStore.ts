@@ -31,6 +31,15 @@ export interface CallUiState {
   screenQuality: string | null;
   screenNotice: string | null;
   participants: ParticipantView[];
+  /**
+   * Other people's screen shares being watched: only these are decoded and
+   * heard. The first stream of a call opens by itself, more wait for a click.
+   */
+  watching: Id[];
+  /** Tile enlarged on the stage (see camTile/screenTile); null = grid of everyone. */
+  focus: string | null;
+  /** Call area covering the chat below it. */
+  stageExpanded: boolean;
   /** Bumped whenever tracks change, so video tiles re-attach. */
   trackVersion: number;
 }
@@ -49,6 +58,9 @@ export const idleCall: CallUiState = {
   screenQuality: null,
   screenNotice: null,
   participants: [],
+  watching: [],
+  focus: null,
+  stageExpanded: false,
   trackVersion: 0,
 };
 
@@ -95,6 +107,7 @@ export const calls = {
     audio: CaptureMode | null;
   }) => manager?.startScreenShare(opts),
   stopScreenShare: async () => manager?.stopScreenShare(),
+  watchStream: (identity: Id, on: boolean) => manager?.watchStream(identity, on),
   restartMic: async () => manager?.restartMic(),
   onPushToTalkSettingChanged: async () => manager?.onPushToTalkSettingChanged(),
 

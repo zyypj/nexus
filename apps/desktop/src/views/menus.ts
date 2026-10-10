@@ -6,14 +6,11 @@ import { openDialog, openProfile } from "../lib/dialogs";
 import { client } from "../lib/nexus";
 import { colorHex, useUi } from "../lib/ui";
 import { openServer } from "./ServerRail";
+import { fail, moveVoiceMember, placeChannel } from "./serverActions";
 
 /** Right-click menu builders. Each runs against the current state. */
 
 const has = (server: ServerView, p: number) => hasPermission(server.permissions, p);
-
-function fail(e: unknown) {
-  alert((e as Error).message || "Não foi possível concluir a ação.");
-}
 
 function copy(text: string) {
   void navigator.clipboard.writeText(text).catch(() => undefined);
@@ -161,6 +158,31 @@ export function userMenu(userId: Id, at: { x: number; y: number }, serverId: Id 
   return entries;
 }
 
+/** "Mover para" (someone in a voice channel): the other voice channels you can enter. */
+export function voiceMoveEntry(serverId: Id, userId: Id, fromChannelId: Id): MenuEntry {
+  const s = client().store.getState();
+  const channels = Object.values(s.conversations)
+    .filter(
+      (c) =>
+        c.server_id === serverId &&
+        c.kind === "voice" &&
+        c.id !== fromChannelId &&
+        hasPermission(c.permissions, Permissions.CONNECT),
+    )
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  return {
+    label: "Mover para",
+    icon: "volume",
+    submenu: channels.length
+      ? channels.map((c) => ({
+          label: c.name ?? "",
+          icon: "volume" as const,
+          run: () => moveVoiceMember(serverId, userId, c.id),
+        }))
+      : [{ label: "Nenhum outro canal de voz", disabled: true }],
+  };
+}
+
 /** Server icon in the rail. */
 export function serverMenu(serverId: Id): MenuEntry[] {
   const s = client().store.getState();
@@ -236,6 +258,17 @@ export function channelMenu(channel: ConversationView): MenuEntry[] {
       label: "Editar canal",
       icon: "settings",
       run: () => openDialog({ kind: "channelSettings", serverId, channelId: channel.id }),
+    },
+    canManage && {
+      label: "Mover para a categoria",
+      icon: "chevronRight",
+      submenu: [{ id: null, name: "Sem categoria" }, ...[...server.categories].sort((a, b) => a.position - b.position)].map(
+        (cat) => ({
+          label: cat.name,
+          disabled: (channel.category_id ?? null) === cat.id,
+          run: () => placeChannel(serverId, channel.id, cat.id),
+        }),
+      ),
     },
     { separator: true },
     { label: "Copiar nome do canal", icon: "copy", run: () => copy(channel.name ?? "") },

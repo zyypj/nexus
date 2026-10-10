@@ -471,6 +471,10 @@ export class ApiClient {
   ): Promise<void> {
     return this.request("PUT", `/api/servers/${id}/layout`, body);
   }
+  /** Moves a member who is in a voice channel of the server to another one (Move Members). */
+  moveVoiceMember(id: Id, userId: Id, channelId: Id): Promise<void> {
+    return this.request("POST", `/api/servers/${id}/voice/move`, { user_id: userId, channel_id: channelId });
+  }
   putOverwrite(id: Id, targetId: Id, roleId: Id, allow: number, deny: number): Promise<void> {
     return this.request("PUT", `/api/servers/${id}/overwrites/${targetId}/${roleId}`, { allow, deny });
   }

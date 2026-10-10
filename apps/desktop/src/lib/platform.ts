@@ -66,6 +66,23 @@ export async function setBadge(count: number): Promise<void> {
   }
 }
 
+/**
+ * Real fullscreen for the window. WebView2 only stretches a fullscreen element
+ * over the window it is in, so the shell is asked to cover the monitor; in a
+ * browser the page itself goes fullscreen.
+ */
+export async function setWindowFullscreen(on: boolean): Promise<void> {
+  try {
+    if (isTauri) {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().setFullscreen(on);
+    } else if (on) await document.documentElement.requestFullscreen();
+    else if (document.fullscreenElement) await document.exitFullscreen();
+  } catch {
+    // Not allowed (no user gesture): the stage still fills the window.
+  }
+}
+
 /** Opens http(s) URLs in the default browser, never inside the app WebView. */
 export async function openExternal(url: string): Promise<void> {
   if (!/^https?:\/\//i.test(url)) return;

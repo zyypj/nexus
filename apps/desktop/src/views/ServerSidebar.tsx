@@ -8,9 +8,11 @@ import { openContextMenu } from "../components/ContextMenu";
 import { volumeEntry } from "../components/UserVolume";
 import { Modal } from "../components/Modal";
 import { openDialog } from "../lib/dialogs";
+import { dragProps, dropClass, useDrop } from "../lib/dnd";
 import { client, useNexus } from "../lib/nexus";
 import { useUi } from "../lib/ui";
-import { categoryMenu, channelMenu, userMenu } from "./menus";
+import { categoryMenu, channelMenu, userMenu, voiceMoveEntry } from "./menus";
+import { moveCategory, moveVoiceMember, placeChannel } from "./serverActions";
 
 const NO_CATEGORIES: { id: Id; name: string; position: number }[] = [];
 
@@ -140,10 +142,24 @@ function ChannelCategory({
   const collapsed = useUi((s) => (id ? !!s.collapsed[id] : false));
   // A collapsed category still shows the open channel and unread ones.
   const shown = collapsed ? group.channels.filter((c) => c.id === active || c.unread_count > 0) : group.channels;
+  // Drag the header to reorder categories; drop a channel on it to move it here.
+  const drop = useDrop(
+    (item) => (canManage && id && item.type === "category" && item.id !== id ? "reorder" : null),
+    (item, place) => item.type === "category" && id && place !== "into" && moveCategory(serverId, item.id, id, place),
+  );
+  const headerDrop = useDrop(
+    (item) => (canManage && item.type === "channel" ? "into" : null),
+    (item) => item.type === "channel" && placeChannel(serverId, item.id, id ?? null),
+  );
   return (
-    <div className="channel-category">
+    <div className={`channel-category${dropClass(drop.place)}`} {...drop.props}>
       {group.category && (
-        <div className="category-header" onContextMenu={(e) => id && openContextMenu(e, () => categoryMenu(serverId, id))}>
+        <div
+          className={`category-header${dropClass(headerDrop.place)}`}
+          onContextMenu={(e) => id && openContextMenu(e, () => categoryMenu(serverId, id))}
+          {...headerDrop.props}
+          {...dragProps(canManage && !!id && { type: "category", id, serverId })}
+        >
           <button
             type="button"
             className="category-toggle"
@@ -175,6 +191,28 @@ function ChannelCategory({
   );
 }
 
+/**
+ * A channel row as a drop target: another channel is placed before/after it
+ * (same category as this one); on a voice channel, a person is moved into it.
+ */
+function useChannelDrop(channel: ConversationView, canManage: boolean) {
+  const serverId = channel.server_id ?? "";
+  const joinable = channel.kind === "voice" && hasPermission(channel.permissions, Permissions.CONNECT);
+  return useDrop(
+    (item) =>
+      canManage && item.type === "channel" && item.id !== channel.id
+        ? "reorder"
+        : joinable && item.type === "member" && item.channelId !== channel.id
+          ? "into"
+          : null,
+    (item, place) => {
+      if (item.type === "member") moveVoiceMember(serverId, item.userId, channel.id);
+      else if (item.type === "channel" && place !== "into")
+        placeChannel(serverId, item.id, channel.category_id ?? null, { id: channel.id, side: place });
+    },
+  );
+}
+
 const TextChannel = memo(function TextChannel({
   channel,
   active,
@@ -188,10 +226,13 @@ const TextChannel = memo(function TextChannel({
 }) {
   const unread = channel.unread_count;
   const locked = !hasPermission(channel.permissions, Permissions.SEND_MESSAGES);
+  const drop = useChannelDrop(channel, canManage);
   return (
     <div
-      className={`channel-row${active ? " active" : ""}${unread > 0 ? " unread" : ""}`}
+      className={`channel-row${active ? " active" : ""}${unread > 0 ? " unread" : ""}${dropClass(drop.place)}`}
       onContextMenu={(e) => openContextMenu(e, () => channelMenu(channel))}
+      {...drop.props}
+      {...dragProps(canManage && !!channel.server_id && { type: "channel", id: channel.id, serverId: channel.server_id })}
     >
       <button
         type="button"
@@ -230,11 +271,14 @@ const VoiceChannel = memo(function VoiceChannel({
   const myCallConv = useCall((s) => s.conversationId);
   const here = myCallConv === channel.id;
   const canConnect = hasPermission(channel.permissions, Permissions.CONNECT);
+  const drop = useChannelDrop(channel, canManage);
   return (
-    <div className="voice-channel">
+    // The whole block takes the drop, so a person can be let go over the people already there.
+    <div className={`voice-channel${dropClass(drop.place)}`} {...drop.props}>
       <div
         className={`channel-row${active ? " active" : ""}${here ? " connected" : ""}`}
         onContextMenu={(e) => openContextMenu(e, () => channelMenu(channel))}
+        {...dragProps(canManage && !!channel.server_id && { type: "channel", id: channel.id, serverId: channel.server_id })}
       >
         <button
           type="button"
@@ -261,6 +305,7 @@ const VoiceChannel = memo(function VoiceChannel({
             <VoiceMember
               key={p.user_id}
               serverId={channel.server_id ?? ""}
+              channelId={channel.id}
               userId={p.user_id}
               muted={p.muted}
               deafened={p.deafened}
@@ -277,6 +322,7 @@ const VoiceChannel = memo(function VoiceChannel({
 
 function VoiceMember({
   serverId,
+  channelId,
   userId,
   muted,
   deafened,
@@ -285,6 +331,7 @@ function VoiceMember({
   inMyCall,
 }: {
   serverId: Id;
+  channelId: Id;
   userId: Id;
   muted: boolean;
   deafened: boolean;
@@ -299,14 +346,21 @@ function VoiceMember({
     return sv ? memberColor(sv, userId) : undefined;
   });
   const speaking = useCall((s) => inMyCall && s.participants.some((p) => p.identity === userId && p.speaking && !p.micMuted));
+  // Drag to another voice channel: yourself always, others with Move Members.
+  const movable = useNexus(
+    (s) => userId === s.me?.id || hasPermission(s.servers[serverId]?.permissions ?? 0, Permissions.MOVE_MEMBERS),
+  );
   return (
     <li
       className={`voice-member${speaking ? " speaking" : ""}`}
+      {...dragProps(movable && { type: "member", userId, serverId, channelId })}
       onContextMenu={(e) => {
         const at = { x: e.clientX, y: e.clientY };
         openContextMenu(e, () => [
           // Your own row has no volume (you never hear yourself).
           userId !== client().store.getState().me?.id && volumeEntry(userId),
+          { separator: true },
+          movable && voiceMoveEntry(serverId, userId, channelId),
           { separator: true },
           ...userMenu(userId, at, serverId || null),
         ]);

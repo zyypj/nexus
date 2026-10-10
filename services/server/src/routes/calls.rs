@@ -169,35 +169,120 @@ pub async fn start(
         .await?;
     }
 
-    if let Some(call_id) = active_call_id(&state.db, &conversation_id).await? {
-        return Ok((StatusCode::OK, Json(join_internal(&state, &user, &call_id).await?)));
+    let (call_id, created) = ensure_call(&state, &conversation_id, &user.id).await?;
+    let status = if created { StatusCode::CREATED } else { StatusCode::OK };
+    Ok((status, Json(join_internal(&state, &user, &call_id).await?)))
+}
+
+/// The conversation's running call, started now when there is none. Returns
+/// its id and whether it was created here.
+async fn ensure_call(state: &AppState, conversation_id: &str, started_by: &str) -> ApiResult<(String, bool)> {
+    if let Some(call_id) = active_call_id(&state.db, conversation_id).await? {
+        return Ok((call_id, false));
     }
     let call_id = new_id();
     let res = sqlx::query(
         "INSERT INTO calls (id, conversation_id, room_name, started_by, created_at) VALUES (?, ?, ?, ?, ?)",
     )
     .bind(&call_id)
-    .bind(&conversation_id)
+    .bind(conversation_id)
     .bind(new_room_name())
-    .bind(&user.id)
+    .bind(started_by)
     .bind(now_ms())
     .execute(&state.db)
     .await;
     match res {
         Ok(_) => {}
         Err(e) if crate::db::is_unique_violation(&e) => {
-            // Someone else started it a moment ago: join theirs.
-            let existing = active_call_id(&state.db, &conversation_id)
+            // Someone else started it a moment ago: use theirs.
+            let existing = active_call_id(&state.db, conversation_id)
                 .await?
                 .ok_or(ApiError::Conflict("call state changed, retry"))?;
-            return Ok((StatusCode::OK, Json(join_internal(&state, &user, &existing).await?)));
+            return Ok((existing, false));
         }
         Err(e) => return Err(e.into()),
     }
     let call = load_call(&state.db, &call_id).await?;
-    broadcast(&state, &conversation_id, events::CALL_CREATE, &json!(call)).await?;
+    broadcast(state, conversation_id, events::CALL_CREATE, &json!(call)).await?;
     spawn_empty_call_reaper(state.clone(), call_id.clone(), EMPTY_CALL_GRACE);
-    Ok((StatusCode::CREATED, Json(join_internal(&state, &user, &call_id).await?)))
+    Ok((call_id, true))
+}
+
+#[derive(Deserialize)]
+pub struct MoveMember {
+    pub user_id: String,
+    pub channel_id: String,
+}
+
+/// Moves a member who is in one of the server's voice channels to another one
+/// (Move Members). The server only opens the target call and tells the
+/// member's client, which joins it like any channel switch; so both the mover
+/// and the member need to be able to connect there.
+pub async fn move_member(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(server_id): Path<String>,
+    ApiJson(body): ApiJson<MoveMember>,
+) -> ApiResult<StatusCode> {
+    use crate::permissions::{self as perm, Snapshot};
+    state.limiter.check("call", &user.id, rules::CALL)?;
+    validate_id(&server_id)?;
+    validate_id(&body.user_id)?;
+    validate_id(&body.channel_id)?;
+    let snap = Snapshot::load(&state.db, &server_id).await?;
+    let actor = snap.ctx(&user.id).ok_or(ApiError::NotFound("server"))?;
+    if !actor.has(perm::MOVE_MEMBERS) {
+        return Err(ApiError::Forbidden("missing Move Members"));
+    }
+    let target = snap.ctx(&body.user_id).ok_or(ApiError::NotFound("member"))?;
+
+    let dest: Option<(String, Option<String>)> =
+        sqlx::query_as("SELECT kind, category_id FROM conversations WHERE id = ? AND server_id = ?")
+            .bind(&body.channel_id)
+            .bind(&server_id)
+            .fetch_optional(&state.db)
+            .await?;
+    let (kind, category) = dest.ok_or(ApiError::NotFound("channel"))?;
+    if kind != "voice" {
+        return Err(ApiError::bad("members can only be moved to voice channels"));
+    }
+    let need = perm::VIEW_CHANNEL | perm::CONNECT;
+    if snap.channel_perms(&actor, category.as_deref(), &body.channel_id) & need != need {
+        return Err(ApiError::NotFound("channel"));
+    }
+    if snap.channel_perms(&target, category.as_deref(), &body.channel_id) & need != need {
+        return Err(ApiError::Forbidden("this member cannot connect to that channel"));
+    }
+
+    let current: Option<(String, String)> = sqlx::query_as(
+        "SELECT c.id, c.conversation_id FROM call_participants p
+         JOIN calls c ON c.id = p.call_id
+         JOIN conversations v ON v.id = c.conversation_id
+         WHERE p.user_id = ? AND p.left_at IS NULL AND c.ended_at IS NULL AND v.server_id = ?",
+    )
+    .bind(&body.user_id)
+    .bind(&server_id)
+    .fetch_optional(&state.db)
+    .await?;
+    let (from_call, from_channel) = current.ok_or(ApiError::Conflict(
+        "this member is not in a voice channel of this server",
+    ))?;
+    if from_channel == body.channel_id {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    let (call_id, _) = ensure_call(&state, &body.channel_id, &user.id).await?;
+    state.hub.send_one(
+        &body.user_id,
+        events::CALL_MOVE,
+        &json!({
+            "call_id": call_id,
+            "conversation_id": body.channel_id,
+            "from_call_id": from_call,
+            "moved_by": user.id,
+        }),
+    );
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn join(

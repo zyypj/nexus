@@ -121,6 +121,25 @@ Esse teste encontrou um bug real: o `PROPVARIANT` com o blob de ativação apont
 era destruído com `PropVariantClear`, causando corrupção de heap. Corrigido (o `PROPVARIANT`
 nunca é liberado, pois não é dono da memória).
 
+### Assistindo (palco da chamada)
+
+`apps/desktop/src/views/CallPanel.tsx`, no estilo do Discord:
+
+- Cada câmera/avatar e cada transmissão é um bloco. **Grade** automática (os maiores blocos 16:9
+  que cabem) ou **um bloco ampliado** com os outros numa faixa de miniaturas: clique para ampliar,
+  botão "Ver todos em grade" para voltar. Vale para câmeras também.
+- **Mais de uma transmissão:** a primeira da chamada abre sozinha; as outras aparecem como bloco
+  "Ao vivo — Assistir" e só são decodificadas **e ouvidas** depois do clique (o áudio da
+  transmissão segue o que se assiste; "Parar de assistir" no bloco ou no botão direito). Blocos
+  não assistidos não custam vídeo (adaptive stream pausa trilhas sem elemento visível).
+- **Tela cheia** de verdade (janela do Tauri em fullscreen; `Esc` sai): botão no bloco, clique
+  duplo no bloco ampliado ou botão direito. Em tela cheia a barra do palco ganha microfone, som,
+  câmera e desligar, e some junto com o cursor após 3 s parado.
+- **Tamanho da área:** arraste a borda de baixo do palco (fica salvo; clique duplo volta ao
+  automático) ou use "Ocultar chat" para o palco ocupar tudo. Em canais de voz ele já ocupa tudo.
+- A lógica (o que se assiste, bloco ampliado, grade, limite do tamanho) é pura em
+  `call/stageLayout.ts`, com testes.
+
 ## Android
 
 Ver [ANDROID.md](ANDROID.md): MediaProjection + serviço em primeiro plano; áudio via

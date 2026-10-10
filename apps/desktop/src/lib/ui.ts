@@ -11,6 +11,10 @@ interface UiState {
   lastChannel: Record<Id, Id>;
   collapsed: Record<Id, boolean>;
   memberList: boolean;
+  /** Height of the call area as a fraction of the chat; null = automatic. */
+  callSize: number | null;
+  /** Order of the server icons, set by dragging them (this device only). */
+  serverOrder: Id[];
   set: (patch: Partial<Omit<UiState, "set">>) => void;
 }
 
@@ -28,6 +32,8 @@ export const useUi = create<UiState>()((set, get) => ({
   serverId: null,
   lastChannel: {},
   collapsed: {},
+  callSize: null,
+  serverOrder: [],
   // Narrow windows start without the member list (it would cover the chat).
   memberList: typeof window === "undefined" || window.innerWidth >= 1100,
   ...load(),
@@ -61,6 +67,7 @@ export const PERMISSION_INFO: { key: keyof typeof Permissions; label: string; he
   { key: "CONNECT", label: "Conectar", help: "Entrar nos canais de voz.", group: "Voz" },
   { key: "SPEAK", label: "Falar", help: "Sem isso a pessoa só escuta.", group: "Voz" },
   { key: "VIDEO", label: "Vídeo e tela", help: "Câmera e compartilhamento de tela.", group: "Voz" },
+  { key: "MOVE_MEMBERS", label: "Mover membros", help: "Levar quem está num canal de voz para outro.", group: "Voz" },
 ];
 
 /** Role color presets (Nexus palette + classics). */

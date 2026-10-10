@@ -1,6 +1,7 @@
 import { NexusClient, type NexusState, conversationTitle } from "@nexus/shared";
 import { useStore } from "zustand";
 import { create } from "zustand";
+import { calls, useCall } from "../call/callStore";
 import { deviceName, listen, notify, tokenStore } from "./platform";
 import { playSound } from "./sounds";
 import { settings } from "./settings";
@@ -55,6 +56,13 @@ export function createClient(serverUrl: string): NexusClient {
     deviceName: deviceName(),
     isAppVisible: () => focused && document.visibilityState === "visible",
     onLoggedOut: () => useSession.getState().setPhase("login"),
+    // Moved to another voice channel: only the device that is in that call follows.
+    onCallMove: (move) => {
+      if (useCall.getState().callId !== move.from_call_id) return;
+      const following = client.state.activeConversationId === useCall.getState().conversationId;
+      void calls.join(move.call_id).catch(() => undefined);
+      if (following) void client.openConversation(move.conversation_id);
+    },
     onNotify: (m, s) => {
       playSound("message");
       if (!settings().notifications) return;

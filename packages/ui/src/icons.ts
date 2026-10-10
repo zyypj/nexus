@@ -28,6 +28,8 @@ export const ICON_PATHS = {
   shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
   hash: "M4 9h16M4 15h16M10 3L8 21M16 3l-2 18",
   maximize: "M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3",
+  minimize: "M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3",
+  grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z",
   chevronDown: "M6 9l6 6 6-6",
   chevronRight: "M9 6l6 6-6 6",
   crown: "M3 18h18M4 8l4 5 4-7 4 7 4-5-1.5 10h-13z",

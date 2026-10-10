@@ -11,6 +11,7 @@
     "core:window:allow-set-badge-count",
     "core:window:allow-is-focused",
     "core:window:allow-is-visible",
+    "core:window:allow-set-fullscreen",
     "notification:default",
     "opener:default",
     "updater:default",

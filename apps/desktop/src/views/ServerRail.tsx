@@ -5,9 +5,12 @@ import { useShallow } from "zustand/react/shallow";
 import { openContextMenu } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
 import { Modal } from "../components/Modal";
+import { type DragItem, type DropPlace, dragProps, dropClass, useDrop } from "../lib/dnd";
+import { orderBy } from "../lib/layout";
 import { client, useNexus } from "../lib/nexus";
 import { initials, serverGradient, useUi } from "../lib/ui";
 import { serverMenu } from "./menus";
+import { moveServer } from "./serverActions";
 
 /** Opens a server on its last channel (or its first text channel). */
 export function openServer(id: string | null) {
@@ -41,7 +44,9 @@ export function ServerIcon({ server, size = 48 }: { server: Pick<ServerView, "id
 
 /** Vertical bar of floating server icons (Início, servers, add). */
 export function ServerRail() {
-  const servers = useNexus(useShallow((s) => Object.values(s.servers)));
+  // In the order the icons were dragged into.
+  const order = useUi((s) => s.serverOrder);
+  const servers = orderBy(useNexus(useShallow((s) => Object.values(s.servers))), order);
   const active = useUi((s) => s.serverId);
   const dmUnread = useNexus(totalUnread);
   const pending = useNexus((s) => s.incoming.length);
@@ -67,6 +72,10 @@ export function ServerRail() {
 
 const ServerRailItem = memo(function ServerRailItem({ server, active }: { server: ServerView; active: boolean }) {
   const unread = useNexus((s) => serverHasUnread(s, server.id));
+  const drop = useDrop(
+    (item) => (item.type === "server" && item.id !== server.id ? "reorder" : null),
+    (item, place) => item.type === "server" && place !== "into" && moveServer(item.id, server.id, place),
+  );
   return (
     <RailItem
       active={active}
@@ -74,6 +83,8 @@ const ServerRailItem = memo(function ServerRailItem({ server, active }: { server
       label={server.name}
       onClick={() => openServer(server.id)}
       onContextMenu={(e) => openContextMenu(e, () => serverMenu(server.id))}
+      drag={{ type: "server", id: server.id }}
+      drop={drop}
     >
       <ServerIcon server={server} />
     </RailItem>
@@ -89,8 +100,13 @@ function RailItem({
   badge,
   accent,
   onContextMenu,
+  drag,
+  drop,
 }: {
   onContextMenu?: (e: React.MouseEvent) => void;
+  /** Servers: drag the icon to reorder the bar. */
+  drag?: DragItem;
+  drop?: { place: DropPlace | null; props: object };
   active?: boolean;
   unread?: boolean;
   label: string;
@@ -100,7 +116,11 @@ function RailItem({
   accent?: boolean;
 }) {
   return (
-    <div className={`rail-item${active ? " active" : ""}${unread ? " unread" : ""}`}>
+    <div
+      className={`rail-item${active ? " active" : ""}${unread ? " unread" : ""}${dropClass(drop?.place ?? null)}`}
+      {...drop?.props}
+      {...dragProps(drag ?? null)}
+    >
       <span className="rail-pill" aria-hidden />
       <button
         type="button"

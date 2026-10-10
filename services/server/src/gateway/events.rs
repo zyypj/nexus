@@ -33,6 +33,9 @@ pub const CALL_JOIN: &str = "CALL_JOIN";
 pub const CALL_LEAVE: &str = "CALL_LEAVE";
 pub const CALL_STATE_UPDATE: &str = "CALL_STATE_UPDATE";
 pub const CALL_END: &str = "CALL_END";
+/// Sent only to a member being moved to another voice channel: their client
+/// joins the target call (which leaves the current one).
+pub const CALL_MOVE: &str = "CALL_MOVE";
 
 pub const SERVER_CREATE: &str = "SERVER_CREATE";
 pub const SERVER_UPDATE: &str = "SERVER_UPDATE";

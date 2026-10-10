@@ -52,6 +52,12 @@ export function createClient(serverUrl: string): NexusClient {
     deviceName: 'Nexus Android',
     isAppVisible: () => foreground,
     onLoggedOut: () => useSession.setState({ phase: 'login' }),
+    // Moved to another voice channel: only the device that is in that call follows.
+    onCallMove: (move) => {
+      void import('../call/callManager').then(({ calls, useCall }) => {
+        if (useCall.getState().callId === move.from_call_id) void calls.join(move.call_id).catch(() => undefined);
+      });
+    },
     onNotify: (m, s) => {
       playSound('message');
       const author = s.users[m.author_id]?.display_name ?? 'Nova mensagem';

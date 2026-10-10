@@ -36,8 +36,10 @@ pub const MANAGE_SERVER: i64 = 1 << 13;
 pub const ADMINISTRATOR: i64 = 1 << 14;
 pub const CHANGE_NICKNAME: i64 = 1 << 15;
 pub const MANAGE_NICKNAMES: i64 = 1 << 16;
+/// Move other members between voice channels.
+pub const MOVE_MEMBERS: i64 = 1 << 17;
 
-pub const ALL: i64 = (1 << 17) - 1;
+pub const ALL: i64 = (1 << 18) - 1;
 
 /// What everyone can do in a new server.
 pub const DEFAULT_EVERYONE: i64 = VIEW_CHANNEL
