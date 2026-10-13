@@ -27,7 +27,13 @@ import {
   useSettings,
 } from "../lib/settings";
 import { playSound, startLoop, stopLoop } from "../lib/sounds";
-import { type ParticipantView, idleCall as idle, setCallUi as setUi, useCall } from "./callStore";
+import {
+  type CallUiState,
+  type ParticipantView,
+  idleCall as idle,
+  setCallUi as setUi,
+  useCall,
+} from "./callStore";
 import { releaseAudio, resumeAudio, sharedAudioContext } from "./audioContext";
 import { MicProcessor } from "./noise";
 import { SpeakingDetector } from "./speaking";
@@ -93,6 +99,10 @@ export class CallManager {
   private speaking: SpeakingDetector | null = null;
   /** Remote streams already seen, to tell a new one from one the user closed. */
   private knownStreams = new Set<Id>();
+  private screenStop: Promise<void> | null = null;
+  private audioChain: Promise<void> = Promise.resolve();
+  /** Stream audio the capture is really set to (JSON), to skip repeated requests. */
+  private appliedAudio = "null";
 
   constructor() {
     this.wantMuted = useCall.getState().muted;
@@ -275,7 +285,8 @@ export class CallManager {
       })
       .on(RoomEvent.LocalTrackUnpublished, (pub) => {
         // Browser's own "stop sharing" button ends the screen track.
-        if (pub.source === Track.Source.ScreenShare) void this.afterScreenStopped();
+        const sharing = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+        if (pub.source === Track.Source.ScreenShare && !sharing) void this.afterScreenStopped();
         bump();
       })
       .on(RoomEvent.ConnectionQualityChanged, refresh)
@@ -590,19 +601,103 @@ export class CallManager {
   }) {
     const room = this.room;
     if (!room) return;
-    const auto = opts.quality === "auto";
-    const p: QualityPreset = auto ? autoStart() : preset(opts.quality as QualityPreset["id"]);
-    const allow60 = opts.motion && (navigator.hardwareConcurrency || 4) >= 8;
+    // Picking another screen/window while sharing replaces the share.
+    if (useCall.getState().screenOn) await this.stopScreenShare();
+    const { preset: p, governor } = this.screenPlan(opts.quality, opts.motion);
     const started = opts.source
       ? await this.startNativeScreen(opts.source, p, opts.motion)
       : await this.startBrowserScreen(p, opts.surface ?? "monitor", opts.motion);
     if (!started) return;
-    this.governor = new QualityGovernor(p, auto, allow60);
-    setUi({ screenOn: true, screenQuality: p.label, screenNotice: null });
+    this.governor = governor;
+    const window = opts.source?.kind === "window" ? opts.source : undefined;
+    setUi({
+      screenOn: true,
+      screenQuality: p.label,
+      screenNotice: null,
+      screenSettings: {
+        quality: opts.quality,
+        motion: opts.motion,
+        audio: null,
+        app: window?.pid ? { pid: window.pid, name: window.app ?? window.name } : null,
+      },
+    });
     playSound("screen_start");
-    if (opts.audio) await this.startSystemAudio(opts.audio);
+    if (opts.audio && (await this.startSystemAudio(opts.audio))) this.patchScreenSettings({ audio: opts.audio });
+    this.appliedAudio = JSON.stringify(useCall.getState().screenSettings?.audio ?? null);
     this.scheduleStats();
     this.syncServerState();
+  }
+
+  /** Starting preset and governor of a quality choice ("auto" adapts by itself). */
+  private screenPlan(quality: ScreenQuality, motion: boolean) {
+    const auto = quality === "auto";
+    const p: QualityPreset = auto ? autoStart() : preset(quality as QualityPreset["id"]);
+    const allow60 = motion && (navigator.hardwareConcurrency || 4) >= 8;
+    return { preset: p, governor: new QualityGovernor(p, auto, allow60) };
+  }
+
+  private patchScreenSettings(patch: Partial<NonNullable<CallUiState["screenSettings"]>>) {
+    const current = useCall.getState().screenSettings;
+    if (current) setUi({ screenSettings: { ...current, ...patch } });
+  }
+
+  /**
+   * Changes resolution/FPS of the running share. The track and its codec stay
+   * (no interruption for who is watching); only the capture size, the encoder
+   * limits and the motion/detail hint change.
+   */
+  async setScreenQuality(quality: ScreenQuality) {
+    const current = useCall.getState().screenSettings;
+    const pub = this.room?.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+    const track = pub?.track as LocalVideoTrack | undefined;
+    if (!current || !track) return;
+    // "Automática" keeps the kind of content the share was started for.
+    const motion = quality === "auto" ? current.motion : preset(quality).fps === 60;
+    const { preset: p, governor } = this.screenPlan(quality, motion);
+    this.governor = governor;
+    this.patchScreenSettings({ quality, motion });
+    setUi({ screenQuality: p.label, screenNotice: null });
+    useSettings.getState().set({ screenQuality: quality });
+    try {
+      track.mediaStreamTrack.contentHint = motion ? "motion" : "detail";
+      await this.applyScreenPreset(p, motion ? "maintain-framerate" : "maintain-resolution");
+    } catch (e) {
+      setUi({ error: `Não foi possível mudar a qualidade: ${String((e as Error).message ?? e)}` });
+    }
+  }
+
+  /**
+   * Changes the sound that goes with the running share (null = none). Calls
+   * are applied in order and only the last wish is: ticking several
+   * applications in a row restarts the capture once.
+   */
+  setScreenAudio(audio: CaptureMode | null): Promise<void> {
+    if (!useCall.getState().screenSettings) return Promise.resolve();
+    this.patchScreenSettings({ audio: audio?.mode === "apps" && audio.pids.length === 0 ? null : audio });
+    this.audioChain = this.audioChain.then(() => this.applyScreenAudio()).catch(() => undefined);
+    return this.audioChain;
+  }
+
+  private async applyScreenAudio() {
+    const wanted = useCall.getState().screenSettings?.audio ?? null;
+    const key = JSON.stringify(wanted);
+    if (!useCall.getState().screenOn || key === this.appliedAudio) return;
+    if (!wanted) {
+      await this.stopSystemAudio();
+      setUi({ screenAudioOn: false });
+    } else if (this.systemAudio) {
+      try {
+        // Same track, another source: nobody watching notices a gap.
+        await this.systemAudio.setMode(wanted);
+      } catch (e) {
+        setUi({ error: `Áudio do computador indisponível: ${String((e as Error).message ?? e)}` });
+        return;
+      }
+    } else if (!(await this.startSystemAudio(wanted))) {
+      this.patchScreenSettings({ audio: null });
+      return;
+    }
+    this.appliedAudio = key;
   }
 
   private async startNativeScreen(source: CaptureSource, p: QualityPreset, motion: boolean): Promise<boolean> {
@@ -625,6 +720,8 @@ export class CallManager {
         degradationPreference: motion ? "maintain-framerate" : "maintain-resolution",
         simulcast: false,
       });
+      // Publishing resets the hint to "motion"; text needs "detail" to stay sharp.
+      track.contentHint = motion ? "motion" : "detail";
       return true;
     } catch (e) {
       this.nativeScreen = null;
@@ -675,7 +772,15 @@ export class CallManager {
     await this.afterScreenStopped();
   }
 
-  private async afterScreenStopped() {
+  /** One clean-up however the share ended (our button, the system's, a closed window). */
+  private afterScreenStopped(): Promise<void> {
+    this.screenStop ??= this.finishScreenStop().finally(() => {
+      this.screenStop = null;
+    });
+    return this.screenStop;
+  }
+
+  private async finishScreenStop() {
     if (this.statsTimer) clearTimeout(this.statsTimer);
     this.statsTimer = null;
     this.governor = null;
@@ -684,13 +789,15 @@ export class CallManager {
     this.nativeScreen = null;
     await native?.stop();
     await this.stopSystemAudio();
-    setUi({ screenOn: false, screenAudioOn: false, screenQuality: null, screenNotice: null });
+    this.appliedAudio = "null";
+    setUi({ screenOn: false, screenAudioOn: false, screenQuality: null, screenNotice: null, screenSettings: null });
     this.syncServerState();
   }
 
-  private async startSystemAudio(mode: CaptureMode) {
+  /** True when the sound is being sent. */
+  private async startSystemAudio(mode: CaptureMode): Promise<boolean> {
     const room = this.room;
-    if (!room) return;
+    if (!room) return false;
     const capture = new SystemAudioCapture();
     try {
       const track = await capture.start(mode);
@@ -704,9 +811,12 @@ export class CallManager {
         red: false,
       });
       setUi({ screenAudioOn: true });
+      return true;
     } catch (e) {
+      this.systemAudio = null;
       await capture.stop();
       setUi({ error: `Áudio do computador indisponível: ${String((e as Error).message ?? e)}` });
+      return false;
     }
   }
 
@@ -745,6 +855,33 @@ export class CallManager {
     if (changed) await sender.setParameters(params);
   }
 
+  /** Puts the running share at a preset: capture size, then the encoder limits. */
+  private async applyScreenPreset(p: QualityPreset, degradation?: RTCDegradationPreference) {
+    const pub = this.room?.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+    const track = pub?.track as LocalVideoTrack | undefined;
+    if (!track) return;
+    if (this.nativeScreen) {
+      // The capture hands over at least the target size; the encoder scales the rest.
+      await this.nativeScreen.configure({ fps: p.fps, maxWidth: p.width, maxHeight: p.height });
+      await this.applyNativeScale(p);
+    } else {
+      await track.mediaStreamTrack.applyConstraints({
+        width: { ideal: p.width },
+        height: { ideal: p.height },
+        frameRate: { ideal: p.fps },
+      });
+    }
+    const sender = track.sender;
+    if (!sender) return;
+    const params = sender.getParameters();
+    for (const enc of params.encodings) {
+      enc.maxBitrate = p.maxBitrate;
+      enc.maxFramerate = p.fps;
+    }
+    if (degradation) params.degradationPreference = degradation;
+    await sender.setParameters(params);
+  }
+
   private async checkStats() {
     const pub = this.room?.localParticipant.getTrackPublication(Track.Source.ScreenShare);
     const track = pub?.track as LocalVideoTrack | undefined;
@@ -754,30 +891,10 @@ export class CallManager {
       const top = stats.sort((a, b) => (b.frameWidth ?? 0) - (a.frameWidth ?? 0))[0];
       const reason = (top?.qualityLimitationReason ?? "none") as Limitation;
       const next = this.governor.sample(reason, top?.framesPerSecond ?? 0);
-      const native = this.nativeScreen;
-      if (native) {
-        // The capture hands over at least the target size; the encoder scales
-        // the rest (and follows window resizes).
-        const target = next ?? this.governor.current;
-        if (next) await native.configure({ fps: next.fps, maxWidth: next.width, maxHeight: next.height });
-        await this.applyNativeScale(target);
-      } else if (next) {
-        await track.mediaStreamTrack.applyConstraints({
-          width: { ideal: next.width },
-          height: { ideal: next.height },
-          frameRate: { ideal: next.fps },
-        });
-      }
+      if (next) await this.applyScreenPreset(next);
+      // Native frames follow window resizes: keep the encoder scale right.
+      else await this.applyNativeScale(this.governor.current);
       if (next) {
-        const sender = track.sender;
-        if (sender) {
-          const params = sender.getParameters();
-          for (const enc of params.encodings) {
-            enc.maxBitrate = next.maxBitrate;
-            enc.maxFramerate = next.fps;
-          }
-          await sender.setParameters(params);
-        }
         const why = reason === "cpu" ? "CPU" : reason === "bandwidth" ? "conexão" : "";
         setUi({
           screenQuality: next.label,

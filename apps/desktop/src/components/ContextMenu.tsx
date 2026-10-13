@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { create } from "zustand";
+import { useCall } from "../call/callStore";
 import { useNexus } from "../lib/nexus";
 import { Icon, type IconName } from "./Icon";
 
@@ -74,6 +75,7 @@ export function ContextMenuHost() {
   useNexus((s) => s.incoming);
   useNexus((s) => s.outgoing);
   useNexus((s) => s.blocked);
+  useCall((s) => s.screenSettings);
   if (!open) return null;
   return createPortal(<Menu x={open.x} y={open.y} items={clean(open.build())} root />, document.body);
 }
@@ -93,14 +95,21 @@ function Menu({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const m = 8;
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    // Submenus open to the right of their row, or to the left when there is no room.
-    let left = x;
-    if (left + w + m > window.innerWidth) left = flipX !== undefined ? flipX - w : window.innerWidth - w - m;
-    const top = Math.max(m, Math.min(y, window.innerHeight - h - m));
-    setPos({ left: Math.max(m, left), top });
+    const place = () => {
+      const m = 8;
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      // Submenus open to the right of their row, or to the left when there is no room.
+      let left = x;
+      if (left + w + m > window.innerWidth) left = flipX !== undefined ? flipX - w : window.innerWidth - w - m;
+      const top = Math.max(m, Math.min(y, window.innerHeight - h - m));
+      setPos((p) => (p && p.left === Math.max(m, left) && p.top === top ? p : { left: Math.max(m, left), top }));
+    };
+    place();
+    // Rows that load later (applications making sound) must not push the menu off the window.
+    const observer = new ResizeObserver(place);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [x, y, flipX]);
 
   const placed = pos !== null;

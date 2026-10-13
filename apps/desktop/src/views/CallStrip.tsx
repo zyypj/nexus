@@ -1,9 +1,10 @@
 import { conversationTitle } from "@nexus/shared";
-import { useState } from "react";
 import { calls, useCall } from "../call/callStore";
+import { openMenuAt } from "../components/ContextMenu";
 import { Icon } from "../components/Icon";
+import { openScreenShare } from "../lib/dialogs";
 import { client, useNexus } from "../lib/nexus";
-import { ScreenShareDialog } from "./ScreenShareDialog";
+import { streamMenu } from "./StreamMenu";
 
 /** Compact call controls above the user bar while connected. */
 export function CallStrip() {
@@ -18,7 +19,6 @@ export function CallStrip() {
     const server = c.server_id ? s.servers[c.server_id] : undefined;
     return server ? `${c.name} / ${server.name}` : conversationTitle(s, c);
   });
-  const [sharing, setSharing] = useState(false);
 
   if (status === "idle") {
     return error ? (
@@ -51,8 +51,9 @@ export function CallStrip() {
         <button
           type="button"
           className={`icon-btn${screenOn ? " on" : ""}`}
-          onClick={() => (screenOn ? void calls.stopScreenShare() : setSharing(true))}
-          title={screenOn ? "Parar compartilhamento" : "Compartilhar tela"}
+          // While sharing: quality, sound, another screen, stop.
+          onClick={(e) => (screenOn ? openMenuAt(e.currentTarget, streamMenu) : openScreenShare())}
+          title={screenOn ? "Opções da transmissão" : "Compartilhar tela"}
         >
           <Icon name="screen" />
         </button>
@@ -65,7 +66,6 @@ export function CallStrip() {
           {error}
         </div>
       )}
-      {sharing && <ScreenShareDialog onClose={() => setSharing(false)} />}
     </div>
   );
 }

@@ -25,11 +25,15 @@ export interface ProfileCard {
 interface DialogState {
   dialog: ServerDialog | null;
   profile: ProfileCard | null;
+  /** The "Transmitir" picker (start sharing, or share something else). */
+  screenShare: boolean;
 }
 
-export const useDialogs = create<DialogState>()(() => ({ dialog: null, profile: null }));
+export const useDialogs = create<DialogState>()(() => ({ dialog: null, profile: null, screenShare: false }));
 
 export const openDialog = (dialog: ServerDialog) => useDialogs.setState({ dialog, profile: null });
 export const closeDialog = () => useDialogs.setState({ dialog: null });
 export const openProfile = (profile: ProfileCard) => useDialogs.setState({ profile });
 export const closeProfile = () => useDialogs.setState({ profile: null });
+export const openScreenShare = () => useDialogs.setState({ screenShare: true });
+export const closeScreenShare = () => useDialogs.setState({ screenShare: false });

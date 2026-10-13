@@ -22,7 +22,7 @@ debug).
 | 5 Call em grupo, calls simultâneas | ✅ testes de servidor (2/5/10, isolamento); 10 participantes medidos com LiveKit real |
 | 6 Câmera | ✅ implementado; vídeo **recebido** validado; câmera local não testada (sem webcam nos testes) |
 | 7 Screen share Windows | ⚠️ implementado (getDisplayMedia/WGC + governador de qualidade com testes); **não testado ponta a ponta com o seletor** |
-| 8 Áudio do PC sem o áudio da call | ✅ captura nativa verificada em hardware (`loopback_probe` 3/3); ⚠️ publicação via LiveKit dentro do app ainda não exercitada ponta a ponta |
+| 8 Áudio do PC sem o áudio da call | ✅ captura nativa verificada em hardware (`loopback_probe`) e a trilha publicada medida dentro do app com LiveKit local; a exclusão do próprio Nexus só passou a funcionar de fato depois da 0.2.8 (ver "Não lançado") |
 | 9 Supressão de ruído | ✅ Padrão (WebRTC) + Avançado (RNNoise) implementados; RNNoise medido (tabela em docs/AUDIO.md) |
 | 10 Android app | ✅ compila (RN 0.87 + Kotlin): login, conversas, amigos, chat (anexos, reações, respostas, edição), notificações locais, token no Keystore; typecheck + jest ok; ⚠️ não executado em aparelho |
 | 11 Call Android | ✅ compila: LiveKit RN, mute/deafen, volume 0–200%, câmera, serviço em primeiro plano; ⚠️ não executado |
@@ -89,6 +89,23 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
+
+## Não lançado — áudio da transmissão (Windows)
+
+- **Corrigido: as vozes da call iam junto no áudio da transmissão** (quem assistia ouvia todo
+  mundo, e a si mesmo, em dobro). A "árvore de processos" do process loopback do Windows só
+  cobre filhos diretos, e o som do Nexus sai de um neto (serviço de áudio do WebView2); a
+  exclusão agora usa o processo principal do WebView2. Medições em docs/SCREEN_SHARE.md.
+- **Menu da transmissão** (botão de tela na barra da chamada, engrenagem ou botão direito em
+  "Sua tela"): qualidade, áudio, trocar tela/janela e parar, tudo **sem interromper**.
+- **Escolher os aplicativos do áudio**: sem áudio, todo o computador (menos o Nexus) ou só os
+  aplicativos marcados, vários ao mesmo tempo (misturados no Rust).
+- O texto de transmissões a 30 FPS voltou a usar a dica `detail` (publicar a trilha a trocava
+  por `motion`).
+- Verificado em hardware: `loopback_probe` (regra dos filhos diretos, exclusão, mistura) e, no
+  app de debug com LiveKit local dirigido por CDP, o áudio publicado e as trocas ao vivo.
+  **Não verificado:** com outra pessoa assistindo de verdade (só a trilha publicada foi medida),
+  no instalador de release e em Windows 10.
 
 ## 0.2.8 — palco da chamada e arrastar e soltar (Windows)
 

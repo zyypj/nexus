@@ -1,14 +1,16 @@
 import { type Id, Permissions, hasPermission } from "@nexus/protocol";
 import { memberColor, memberTop, serverMember } from "@nexus/shared";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useCall } from "../call/callStore";
 import { Avatar } from "../components/Avatar";
 import { Modal } from "../components/Modal";
-import { closeDialog, closeProfile, type ProfileCard, useDialogs } from "../lib/dialogs";
+import { closeDialog, closeProfile, closeScreenShare, type ProfileCard, useDialogs } from "../lib/dialogs";
 import { client, useNexus } from "../lib/nexus";
 import { colorHex } from "../lib/ui";
 import { ChannelSettings } from "./ChannelSettings";
 import { InviteDialog } from "./InviteDialog";
+import { ScreenShareDialog } from "./ScreenShareDialog";
 import { openDmWith } from "./menus";
 import { openServer } from "./ServerRail";
 import { ServerSettings } from "./ServerSettings";
@@ -18,6 +20,12 @@ import { CreateCategoryDialog, CreateChannelDialog } from "./ServerSidebar";
 export function GlobalDialogs() {
   const dialog = useDialogs((s) => s.dialog);
   const profile = useDialogs((s) => s.profile);
+  const screenShare = useDialogs((s) => s.screenShare);
+  // The picker belongs to the call: it goes away with it.
+  const inCall = useCall((s) => s.status !== "idle");
+  useEffect(() => {
+    if (!inCall) closeScreenShare();
+  }, [inCall]);
   const serverExists = useNexus((s) => (dialog ? !!s.servers[dialog.serverId] : false));
   return (
     <>
@@ -41,6 +49,7 @@ export function GlobalDialogs() {
           {dialog.kind === "nickname" && <NicknameDialog serverId={dialog.serverId} userId={dialog.userId} />}
         </>
       )}
+      {screenShare && inCall && <ScreenShareDialog onClose={closeScreenShare} />}
       {profile && <UserCard key={`${profile.userId}${profile.x}${profile.y}`} card={profile} />}
     </>
   );

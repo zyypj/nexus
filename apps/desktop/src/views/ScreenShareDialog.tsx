@@ -27,6 +27,8 @@ function fromSaved(q: ScreenQuality): { res: Resolution; fps: 30 | 60 } {
  * Discord-style "Go Live" picker: the sources (with live thumbnails) and the
  * stream options in one place, then one click starts sharing. Uses native
  * capture, so no second system picker and no "sharing your screen" bar.
+ * Opened while already sharing, it replaces what is shared. Quality and sound
+ * can also be changed live, from the stream's own menu (StreamMenu).
  */
 export function ScreenShareDialog({ onClose }: { onClose: () => void }) {
   const saved = useSettings((s) => s.screenQuality);
@@ -75,7 +77,7 @@ export function ScreenShareDialog({ onClose }: { onClose: () => void }) {
     if (audio && audioSupported && source) {
       // A window shares only that app's audio; a screen shares everything
       // except Nexus (so nobody hears the call twice).
-      mode = source.kind === "window" && source.pid ? { mode: "app", pid: source.pid } : { mode: "exclude_self" };
+      mode = source.kind === "window" && source.pid ? { mode: "apps", pids: [source.pid] } : { mode: "exclude_self" };
     }
     onClose();
     await calls.startScreenShare({ quality: q, source: source ?? undefined, motion: fps === 60, audio: mode });
@@ -189,8 +191,8 @@ export function ScreenShareDialog({ onClose }: { onClose: () => void }) {
                 {!audioSupported
                   ? "Requer Windows 10 2004 ou mais recente."
                   : source?.kind === "window"
-                    ? `Somente o som de ${source.app ?? "este aplicativo"}.`
-                    : "Som do computador, sem as vozes da chamada."}
+                    ? `Somente o som de ${source.app ?? "este aplicativo"}. Dá para escolher outros depois.`
+                    : "Som do computador, sem o Nexus. Dá para escolher só alguns aplicativos depois."}
               </small>
             </span>
           </label>

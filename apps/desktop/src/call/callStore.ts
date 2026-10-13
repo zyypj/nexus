@@ -17,6 +17,17 @@ export interface ParticipantView {
   quality: string;
 }
 
+/** How the running screen share was set up; changed live from its menu. */
+export interface ScreenShareSettings {
+  quality: ScreenQuality;
+  /** Moving content (60 FPS when the machine can), as opposed to sharp text. */
+  motion: boolean;
+  /** Sound sent with the picture; null = none. */
+  audio: CaptureMode | null;
+  /** Application of the shared window (the default for its sound); null for a screen. */
+  app: { pid: number; name: string } | null;
+}
+
 export interface CallUiState {
   status: "idle" | "connecting" | "connected" | "reconnecting";
   callId: Id | null;
@@ -30,6 +41,8 @@ export interface CallUiState {
   screenAudioOn: boolean;
   screenQuality: string | null;
   screenNotice: string | null;
+  /** null while not sharing. */
+  screenSettings: ScreenShareSettings | null;
   participants: ParticipantView[];
   /**
    * Other people's screen shares being watched: only these are decoded and
@@ -57,6 +70,7 @@ export const idleCall: CallUiState = {
   screenAudioOn: false,
   screenQuality: null,
   screenNotice: null,
+  screenSettings: null,
   participants: [],
   watching: [],
   focus: null,
@@ -107,6 +121,9 @@ export const calls = {
     audio: CaptureMode | null;
   }) => manager?.startScreenShare(opts),
   stopScreenShare: async () => manager?.stopScreenShare(),
+  /** While sharing: resolution/FPS, and what sound goes with the picture. */
+  setScreenQuality: async (quality: ScreenQuality) => manager?.setScreenQuality(quality),
+  setScreenAudio: async (audio: CaptureMode | null) => manager?.setScreenAudio(audio),
   watchStream: (identity: Id, on: boolean) => manager?.watchStream(identity, on),
   restartMic: async () => manager?.restartMic(),
   onPushToTalkSettingChanged: async () => manager?.onPushToTalkSettingChanged(),

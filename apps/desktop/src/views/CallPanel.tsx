@@ -2,13 +2,14 @@ import { type CSSProperties, type PointerEvent, useCallback, useEffect, useLayou
 import { type ParticipantView, calls, setCallUi, useCall } from "../call/callStore";
 import { camTile, clampCallSize, gridLayout, screenTile } from "../call/stageLayout";
 import { Avatar } from "../components/Avatar";
-import { type MenuEntry, openContextMenu } from "../components/ContextMenu";
+import { type MenuEntry, openContextMenu, openMenuAt } from "../components/ContextMenu";
 import { streamVolumeEntry, volumeEntry } from "../components/UserVolume";
 import { Icon } from "../components/Icon";
 import { client, useNexus } from "../lib/nexus";
 import { isTauri, setWindowFullscreen } from "../lib/platform";
 import { useUi } from "../lib/ui";
 import { userMenu } from "./menus";
+import { streamMenu } from "./StreamMenu";
 
 interface StageTile {
   id: string;
@@ -335,6 +336,9 @@ function Tile({
         { separator: true },
         ...layout,
         !p.isLocal && live && { label: "Parar de assistir", icon: "x", run: () => calls.watchStream(p.identity, false) },
+        // Your own stream: quality, sound and what is shared, changed live.
+        { separator: true },
+        ...(p.isLocal ? streamMenu() : []),
       ]);
       return;
     }
@@ -391,6 +395,11 @@ function Tile({
         {screen && live && !p.isLocal && (
           <button type="button" title="Parar de assistir" onClick={() => calls.watchStream(p.identity, false)}>
             <Icon name="x" size={16} />
+          </button>
+        )}
+        {screen && p.isLocal && (
+          <button type="button" title="Opções da transmissão" onClick={(e) => openMenuAt(e.currentTarget, streamMenu)}>
+            <Icon name="settings" size={16} />
           </button>
         )}
         <button type="button" title={inFull ? "Sair da tela cheia" : "Tela cheia"} onClick={() => onFullscreen(!inFull)}>

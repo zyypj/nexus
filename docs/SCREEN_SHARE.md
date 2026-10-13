@@ -38,7 +38,7 @@ barra "compartilhando sua tela" do WebView2 (`capture_bar.rs`, equivalente a cli
   Foundation), com VP8 como codec reserva.
 - `contentHint`: `motion` com 60 FPS (jogo/vídeo, mantém FPS), `detail` com 30 FPS (texto nítido).
 - Áudio: ao transmitir uma **janela**, o padrão é o som **só daquele aplicativo**; ao transmitir
-  uma **tela**, o som do computador sem as vozes da chamada.
+  uma **tela**, o som do computador sem o Nexus. Dá para trocar durante a transmissão.
 
 ### Qualidade
 
@@ -60,33 +60,53 @@ encoder a cada 5 s **só enquanto compartilha**:
   chega a 1080p60 para conteúdo em movimento em máquinas com 8+ núcleos lógicos.
 - O WebRTC adapta bitrate continuamente e o LiveKit usa adaptive stream + dynacast nos receptores.
 
-### Áudio do computador
+### Áudio da transmissão
 
-Requisito: os outros ouvem jogo/YouTube/Spotify/navegador, **mas não** as vozes da própria call.
-Capturar a saída inteira do Windows criaria eco (as vozes recebidas voltariam para a call).
+Requisito: os outros ouvem jogo/YouTube/Spotify/navegador, **mas não** o próprio Nexus (as vozes
+da call voltariam para a call: quem assiste ouviria todo mundo, e a si mesmo, em dobro).
+
+Três opções, trocadas a qualquer momento (ver "Mudando ao vivo"):
+
+- **Sem áudio**;
+- **Todo o computador**, menos o Nexus (padrão ao transmitir uma tela);
+- **Só estes aplicativos**: um ou vários, misturados (padrão ao transmitir uma janela: o
+  aplicativo dela).
 
 Implementação (`apps/desktop/src-tauri/src/system_audio.rs`):
 
 1. `ActivateAudioInterfaceAsync` no dispositivo virtual `VAD\Process_Loopback` com
    `AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK`.
-2. **"Áudio do computador"**: `PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE` com o PID do
-   Nexus. O áudio da call é tocado pelo WebView2, cujos processos são **filhos** do Nexus.exe —
-   a árvore inteira (e portanto as vozes) fica de fora.
-3. **"Somente <aplicativo>"**: `PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE` com o PID
-   escolhido (lista das sessões de áudio do Windows via `IAudioSessionManager2`).
-4. `IAudioClient` compartilhado + loopback + evento, float 48 kHz estéreo (`AUTOCONVERTPCM`),
-   buffer de 20 ms.
-5. Blocos de 20 ms vão como bytes crus (sem JSON) por um `Channel` do Tauri; um AudioWorklet
+2. **A "árvore de processos" do Windows só vai até os filhos diretos.** Medido com o
+   `loopback_probe` (abaixo): o som de um processo *neto* não é excluído nem incluído junto com
+   o avô. E o som do Nexus é de um neto: `nexus-desktop.exe` → `msedgewebview2.exe` (processo
+   principal do WebView2) → serviço de áudio. Até a 0.2.8 a exclusão usava o PID do Nexus e,
+   por isso, **as vozes da call vazavam para a transmissão** (medido: −10,8 dBFS com a árvore
+   do Nexus excluída; −140 dBFS excluindo a do WebView2).
+3. **"Todo o computador"**: `PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE` com o PID do
+   **processo principal do WebView2** (`ICoreWebView2::BrowserProcessId`, lido ao abrir o app e
+   de novo a cada captura), cujo filho direto é quem toca tudo o que o Nexus toca.
+4. **"Só estes aplicativos"**: uma captura `INCLUDE_TARGET_PROCESS_TREE` por alvo, misturadas
+   num único fluxo (até 16). Um aplicativo é o processo dele + filhos diretos; onde houver som
+   dois níveis abaixo (um WebView2 embutido, por exemplo) entra um alvo a mais, e um alvo que já
+   é filho de outro não entra duas vezes (`app_targets` / `capture_targets`, com testes). Os
+   processos do Nexus nunca entram. A lista vem das sessões de áudio do Windows
+   (`IAudioSessionManager2`), agrupada por programa; um WebView2 aparece com o nome do
+   aplicativo que o embute.
+5. Cada captura: `IAudioClient` compartilhado + loopback + evento, float 48 kHz estéreo
+   (`AUTOCONVERTPCM`), buffer de 20 ms. Com várias, cada fonte só entra na mistura depois de
+   acumular 40 ms (os pacotes chegam alguns ms defasados) e uma fonte que parou é esvaziada em
+   vez de segurar as outras; com uma só, o som sai como chega.
+6. Blocos de 20 ms vão como bytes crus (sem JSON) por um `Channel` do Tauri; um AudioWorklet
    (`pcmPlayer.worklet.js`: buffer circular de 1 s, alvo de 60 ms, descarta atraso acumulado
    acima de 200 ms) transforma em `MediaStreamTrack`.
-6. O LiveKit publica como `screen_share_audio` (música estéreo, sem DTX), separada do microfone;
+7. O LiveKit publica como `screen_share_audio` (música estéreo, sem DTX), separada do microfone;
    cada ouvinte controla o volume dela à parte.
 
 ```
 Jogo ───────┐
-Chrome ─────┼──► WASAPI process loopback (exclui a árvore do Nexus) ──► Tauri Channel ──► AudioWorklet ──► LiveKit "screen_share_audio"
+Chrome ─────┼──► WASAPI process loopback ──► mistura ──► Tauri Channel ──► AudioWorklet ──► LiveKit "screen_share_audio"
 Spotify ────┘
-Nexus (WebView2 = vozes da call) ── X (excluído na origem)
+Nexus (WebView2 = vozes da call) ── X (fica de fora na origem)
 ```
 
 Não exige VB-Cable, VoiceMeeter nem driver.
@@ -95,31 +115,61 @@ Não exige VB-Cable, VoiceMeeter nem driver.
 (qualquer Windows 11). No Windows 10 22H2 (build 19045) a opção aparece desabilitada com a
 explicação — capturar a saída inteira causaria o eco que o requisito proíbe.
 
+### Mudando ao vivo
+
+Enquanto transmite, o botão de tela (barra da chamada), o botão de engrenagem e o botão direito
+em "Sua tela" abrem o menu da transmissão (`views/StreamMenu.tsx`):
+
+- **Qualidade** (Automática, 720p 30, 1080p 30, 1080p 60): muda o tamanho da captura, o limite
+  do encoder (bitrate/FPS), a dica de conteúdo (`detail`/`motion`) e a preferência de degradação
+  **na mesma trilha**; quem assiste não vê interrupção. O codec é o do início da transmissão.
+- **Áudio da transmissão**: as três opções acima, com a lista de aplicativos que estão com som
+  (atualizada a cada 3 s; ponto verde = tocando agora). Trocar a origem reinicia só a captura
+  nativa: a trilha publicada é a mesma. "Sem áudio" despublica; voltar publica de novo.
+- **Trocar tela ou janela**: abre o seletor; a nova transmissão substitui a atual.
+- **Parar transmissão**.
+
 ### Verificação automatizada (hardware real)
 
-`apps/desktop/src-tauri/examples/loopback_probe.rs` toca um tom de 660 Hz em processos reais e
-mede, só nessa frequência (Goertzel, imune a outros sons do PC), o que a captura recebe:
+`apps/desktop/src-tauri/examples/loopback_probe.rs` toca tons em processos reais e mede, só
+nessas frequências (Goertzel, imune a outros sons do PC), o que a captura recebe. O probe faz o
+papel do `nexus-desktop.exe`: um filho `--relay` é o WebView2 e o filho dele, `--play`, é o
+serviço de áudio.
 
 ```bash
 cd apps/desktop/src-tauri
 cargo run --release --example loopback_probe
 ```
 
-Resultado nesta máquina (Windows 11 build 26300, 7 out 2026):
+Resultado nesta máquina (Windows 11 build 26300, 13 out 2026):
 
 | Caso | Nível do tom capturado | Esperado |
 |---|---|---|
 | nada nosso tocando | −140 dBFS | referência |
-| tom num processo **filho**, modo "só este app" | **−12,9 dBFS** | capturado ✅ |
-| tom num processo **filho**, modo "áudio do computador" | **−140 dBFS** | excluído ✅ |
-| tom num processo **fora da árvore** (criado via WMI), modo "áudio do computador" | **−12,9 dBFS** | capturado ✅ |
+| tom de um **neto**, "só este aplicativo" com o pai dele como alvo | **−12,9 dBFS** | capturado ✅ |
+| tom de um **neto**, "todo o computador" deixando de fora a árvore do pai dele (o "WebView2") | **−140 dBFS** | excluído ✅ |
+| tom de um **neto**, deixando de fora a **nossa própria** árvore | **−12,7 dBFS** | vaza: é a regra do Windows (só filhos diretos) |
+| tom de um processo **fora da árvore** (criado via WMI), "todo o computador" | **−21,9 dBFS** | capturado ✅ |
+| dois aplicativos (660 Hz e 990 Hz), os dois escolhidos | −12,8 / −15,3 dBFS | os dois ✅ |
+| dois aplicativos, só o primeiro escolhido | −13,2 / −74,8 dBFS | só o primeiro ✅ |
 
-Os processos do WebView2 que tocam as vozes da call são descendentes do `nexus-desktop.exe`
-(confirmado listando a árvore de processos), portanto caem no caso "filho → excluído".
+`loopback_probe --pid <pid>` mede um processo qualquer tocando 660 Hz; foi como o vazamento foi
+achado num Nexus de verdade (build de debug, tom tocado pelo WebView2 via CDP):
 
-Esse teste encontrou um bug real: o `PROPVARIANT` com o blob de ativação apontando para a pilha
-era destruído com `PropVariantClear`, causando corrupção de heap. Corrigido (o `PROPVARIANT`
-nunca é liberado, pois não é dono da memória).
+| Árvore deixada de fora | Tom do Nexus na captura |
+|---|---|
+| `nexus-desktop.exe` (o que a 0.2.8 fazia) | **−10,8 dBFS** (vaza) |
+| processo principal do WebView2 | **−140 dBFS** |
+| serviço de áudio do WebView2 | **−140 dBFS** |
+
+Dentro do app (build de debug + LiveKit local, dirigido por CDP): com "Todo o computador", um
+tom tocado pelo próprio Nexus não aparece na trilha publicada (silêncio) e o de outro processo
+aparece (−25,6 dB no analisador); "só este aplicativo" trocado ao vivo capta só o escolhido;
+qualidade trocada ao vivo mantém o mesmo `trackSid`.
+
+Esse teste encontrou outro bug real: o `PROPVARIANT` com o blob de ativação apontando para a
+pilha era destruído com `PropVariantClear`, causando corrupção de heap. Corrigido (o
+`PROPVARIANT` nunca é liberado, pois não é dono da memória).
 
 ### Assistindo (palco da chamada)
 

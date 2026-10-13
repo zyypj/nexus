@@ -98,7 +98,7 @@ pub fn run() {
         ])
         .setup(|app| {
             let title = app.config().product_name.clone().unwrap_or_else(|| "Nexus".into());
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title(&title)
                 .inner_size(1180.0, 760.0)
                 .min_inner_size(820.0, 520.0)
@@ -117,6 +117,8 @@ pub fn run() {
                     _ => PermissionResponse::Default,
                 })
                 .build()?;
+            // Which WebView2 process plays the call, to keep it out of shared audio.
+            system_audio::remember_webview(&window);
 
             let open = MenuItem::with_id(app, "open", "Abrir", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
