@@ -69,14 +69,61 @@ const MIC_PUBLISH = { forceStereo: false };
  * - text / still screens: VP9 (L1T3, one resolution) — libvpx has a
  *   screen-content mode that keeps small text sharp at a fraction of the
  *   bitrate; hardware H.264 encoders ignore the content hint and blur text.
- * - motion (games, video): H.264, the codec WebView2 most likely encodes in
- *   hardware, so 1080p60 stays cheap.
+ * - motion (games, video): H.264, the codec WebView2 can encode in hardware.
+ *   (Where it does not, it is OpenH264 in software: ~50 FPS at 1080p on a
+ *   fast desktop CPU, see docs/SCREEN_SHARE.md.)
  * VP8 is the fallback for receivers that cannot decode the main codec.
  */
+/**
+ * The encoder never lowers the resolution of a screen share by itself: under
+ * pressure it drops frames and comes back as soon as the pressure is gone.
+ * With "maintain-framerate" (once used for motion) WebRTC's quality scaler
+ * took over the resolution: a 1080p60 share started at 288x180, climbed one
+ * step every 5-10 s and fell again at any dip, on a perfect network too. The
+ * resolution is ours to choose (QualityGovernor).
+ */
+const SCREEN_DEGRADATION = "maintain-resolution" as const;
+
 function screenCodec(motion: boolean) {
   return motion
     ? { videoCodec: "h264" as const, backupCodec: { codec: "vp8" as const } }
     : { videoCodec: "vp9" as const, scalabilityMode: "L1T3" as const, backupCodec: { codec: "vp8" as const } };
+}
+
+/**
+ * Runs `publish` (of `track`) so that H.264 is encoded by the GPU when it can.
+ * LiveKit's server settles on constrained baseline (42e01f), which WebView2
+ * only encodes in software (OpenH264: 1080p60 does not reach 60 FPS and eats
+ * the CPU a game needs). The GPU's encoder (NVIDIA/Intel/AMD through Media
+ * Foundation) takes the other profiles; so when it offers High, H.264 is
+ * offered as High only and the server picks that. Measured on the same
+ * content at 8 Mbps: 54-55 FPS at QP 28, against 41-52 FPS at QP 32.
+ * Without a hardware encoder nothing changes. Viewers that cannot decode it
+ * get the backup codec, as for any codec they lack.
+ */
+async function withHardwareH264<T>(track: MediaStreamTrack, publish: () => Promise<T>): Promise<T> {
+  const h264 = (c: RTCRtpCodec) => c.mimeType.toLowerCase() === "video/h264";
+  const high = (c: RTCRtpCodec) => h264(c) && /profile-level-id=64/i.test(c.sdpFmtpLine ?? "");
+  const codecs = RTCRtpSender.getCapabilities("video")?.codecs ?? [];
+  if (!codecs.some(high)) return publish();
+  const proto = RTCPeerConnection.prototype;
+  const original = proto.addTransceiver;
+  proto.addTransceiver = function (this: RTCPeerConnection, trackOrKind, init) {
+    const transceiver = original.call(this, trackOrKind, init);
+    if (trackOrKind === track) {
+      try {
+        transceiver.setCodecPreferences(codecs.filter((c) => !h264(c) || high(c)));
+      } catch {
+        // Keep the default codecs: software H.264 still works.
+      }
+    }
+    return transceiver;
+  };
+  try {
+    return await publish();
+  } finally {
+    proto.addTransceiver = original;
+  }
 }
 
 export class CallManager {
@@ -88,6 +135,8 @@ export class CallManager {
   private systemAudio: SystemAudioCapture | null = null;
   private screenAudioPub: LocalTrackPublication | null = null;
   private nativeScreen: NativeScreenCapture | null = null;
+  /** What the native capture is showing, to restart it with another codec. */
+  private screenSource: CaptureSource | null = null;
   private governor: QualityGovernor | null = null;
   private statsTimer: ReturnType<typeof setTimeout> | null = null;
   private pttReleaseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -100,6 +149,8 @@ export class CallManager {
   /** Remote streams already seen, to tell a new one from one the user closed. */
   private knownStreams = new Set<Id>();
   private screenStop: Promise<void> | null = null;
+  /** Running total of the share's bytes at the last stats check. */
+  private lastSent: { bytes: number; at: number } | null = null;
   private audioChain: Promise<void> = Promise.resolve();
   /** Stream audio the capture is really set to (JSON), to skip repeated requests. */
   private appliedAudio = "null";
@@ -609,6 +660,7 @@ export class CallManager {
       : await this.startBrowserScreen(p, opts.surface ?? "monitor", opts.motion);
     if (!started) return;
     this.governor = governor;
+    this.lastSent = null;
     const window = opts.source?.kind === "window" ? opts.source : undefined;
     setUi({
       screenOn: true,
@@ -642,9 +694,11 @@ export class CallManager {
   }
 
   /**
-   * Changes resolution/FPS of the running share. The track and its codec stay
-   * (no interruption for who is watching); only the capture size, the encoder
-   * limits and the motion/detail hint change.
+   * Changes resolution/FPS of the running share. Between options of the same
+   * kind the track stays (no interruption for who is watching): only the
+   * capture size and the encoder limits change. Going to or from 60 FPS
+   * changes the codec (text: VP9, motion: H.264 on the GPU), which takes a new
+   * publication: the share restarts on the same screen, a blink for viewers.
    */
   async setScreenQuality(quality: ScreenQuality) {
     const current = useCall.getState().screenSettings;
@@ -653,6 +707,12 @@ export class CallManager {
     if (!current || !track) return;
     // "Automática" keeps the kind of content the share was started for.
     const motion = quality === "auto" ? current.motion : preset(quality).fps === 60;
+    const source = this.screenSource;
+    if (motion !== current.motion && source) {
+      useSettings.getState().set({ screenQuality: quality });
+      await this.startScreenShare({ quality, source, motion, audio: current.audio });
+      return;
+    }
     const { preset: p, governor } = this.screenPlan(quality, motion);
     this.governor = governor;
     this.patchScreenSettings({ quality, motion });
@@ -660,7 +720,7 @@ export class CallManager {
     useSettings.getState().set({ screenQuality: quality });
     try {
       track.mediaStreamTrack.contentHint = motion ? "motion" : "detail";
-      await this.applyScreenPreset(p, motion ? "maintain-framerate" : "maintain-resolution");
+      await this.applyScreenPreset(p);
     } catch (e) {
       setUi({ error: `Não foi possível mudar a qualidade: ${String((e as Error).message ?? e)}` });
     }
@@ -712,14 +772,17 @@ export class CallManager {
       );
       capture.onEnded = () => void this.stopScreenShare();
       this.nativeScreen = capture;
-      await room.localParticipant.publishTrack(track, {
-        source: Track.Source.ScreenShare,
-        name: "screen",
-        ...screenCodec(motion),
-        screenShareEncoding: { maxBitrate: p.maxBitrate, maxFramerate: p.fps },
-        degradationPreference: motion ? "maintain-framerate" : "maintain-resolution",
-        simulcast: false,
-      });
+      this.screenSource = source;
+      const publish = () =>
+        room.localParticipant.publishTrack(track, {
+          source: Track.Source.ScreenShare,
+          name: "screen",
+          ...screenCodec(motion),
+          screenShareEncoding: { maxBitrate: p.maxBitrate, maxFramerate: p.fps },
+          degradationPreference: SCREEN_DEGRADATION,
+          simulcast: false,
+        });
+      await (motion ? withHardwareH264(track, publish) : publish());
       // Publishing resets the hint to "motion"; text needs "detail" to stay sharp.
       track.contentHint = motion ? "motion" : "detail";
       return true;
@@ -751,7 +814,7 @@ export class CallManager {
         {
           ...screenCodec(opts.motion),
           screenShareEncoding: { maxBitrate: p.maxBitrate, maxFramerate: p.fps },
-          degradationPreference: opts.motion ? "maintain-framerate" : "maintain-resolution",
+          degradationPreference: SCREEN_DEGRADATION,
           simulcast: false,
         },
       );
@@ -786,6 +849,7 @@ export class CallManager {
     this.governor = null;
     if (useCall.getState().screenOn) playSound("screen_stop");
     const native = this.nativeScreen;
+    this.screenSource = null;
     this.nativeScreen = null;
     await native?.stop();
     await this.stopSystemAudio();
@@ -856,7 +920,7 @@ export class CallManager {
   }
 
   /** Puts the running share at a preset: capture size, then the encoder limits. */
-  private async applyScreenPreset(p: QualityPreset, degradation?: RTCDegradationPreference) {
+  private async applyScreenPreset(p: QualityPreset) {
     const pub = this.room?.localParticipant.getTrackPublication(Track.Source.ScreenShare);
     const track = pub?.track as LocalVideoTrack | undefined;
     if (!track) return;
@@ -878,7 +942,8 @@ export class CallManager {
       enc.maxBitrate = p.maxBitrate;
       enc.maxFramerate = p.fps;
     }
-    if (degradation) params.degradationPreference = degradation;
+    // Also for a share published before this was the rule for motion.
+    params.degradationPreference = SCREEN_DEGRADATION;
     await sender.setParameters(params);
   }
 
@@ -889,16 +954,24 @@ export class CallManager {
     try {
       const stats = await track.getSenderStats();
       const top = stats.sort((a, b) => (b.frameWidth ?? 0) - (a.frameWidth ?? 0))[0];
-      const reason = (top?.qualityLimitationReason ?? "none") as Limitation;
-      const next = this.governor.sample(reason, top?.framesPerSecond ?? 0);
-      if (next) await this.applyScreenPreset(next);
+      // Bitrate really sent since the last check (bytesSent is a running total).
+      const sent = { bytes: top?.bytesSent ?? 0, at: top?.timestamp ?? 0 };
+      const before = this.lastSent;
+      this.lastSent = sent;
+      const seconds = before ? (sent.at - before.at) / 1000 : 0;
+      const step = this.governor.sample({
+        limitation: (top?.qualityLimitationReason ?? "none") as Limitation,
+        targetBitrate: top?.targetBitrate ?? 0,
+        sentBitrate: before && seconds > 0 ? Math.max(0, ((sent.bytes - before.bytes) * 8) / seconds) : 0,
+      });
+      if (step) await this.applyScreenPreset(step.preset);
       // Native frames follow window resizes: keep the encoder scale right.
       else await this.applyNativeScale(this.governor.current);
-      if (next) {
-        const why = reason === "cpu" ? "CPU" : reason === "bandwidth" ? "conexão" : "";
+      if (step) {
+        const why = step.why === "cpu" ? "CPU" : step.why === "network" ? "conexão" : "";
         setUi({
-          screenQuality: next.label,
-          screenNotice: why ? `Qualidade reduzida para ${next.label} (limite de ${why}).` : null,
+          screenQuality: step.preset.label,
+          screenNotice: why ? `Qualidade reduzida para ${step.preset.label} (limite de ${why}).` : null,
         });
       }
     } catch {

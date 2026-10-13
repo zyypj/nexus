@@ -34,9 +34,10 @@ Fallback: se o WebView2 não tiver `MediaStreamTrackGenerator`/shared buffers ou
 suportar WGC, o diálogo usa `getDisplayMedia` (seletor do sistema) como antes, e o app esconde a
 barra "compartilhando sua tela" do WebView2 (`capture_bar.rs`, equivalente a clicar em "Ocultar").
 
-- Codec: **H.264** (o que o WebView2 tem mais chance de codificar em hardware via Media
-  Foundation), com VP8 como codec reserva.
-- `contentHint`: `motion` com 60 FPS (jogo/vídeo, mantém FPS), `detail` com 30 FPS (texto nítido).
+- Codec: **VP9** (L1T3, libvpx em modo de conteúdo de tela) com 30 FPS, para texto nítido;
+  **H.264 pela placa de vídeo** com 60 FPS (jogo/vídeo). VP8 é o codec reserva para quem não
+  decodifica o principal. Ver "Qualidade".
+- `contentHint`: `motion` com 60 FPS, `detail` com 30 FPS.
 - Áudio: ao transmitir uma **janela**, o padrão é o som **só daquele aplicativo**; ao transmitir
   uma **tela**, o som do computador sem o Nexus. Dá para trocar durante a transmissão.
 
@@ -46,19 +47,61 @@ barra "compartilhando sua tela" do WebView2 (`capture_bar.rs`, equivalente a cli
 |---|---|---|---|
 | 720p 30 FPS | 1280×720 | 30 | 2,5 Mbps |
 | 1080p 30 FPS | 1920×1080 | 30 | 4 Mbps |
-| 1080p 60 FPS | 1920×1080 | 60 | 6 Mbps |
+| 1080p 60 FPS | 1920×1080 | 60 | 8 Mbps |
 | **Automática** (padrão) | começa em 1080p30 (720p30 com < 4 núcleos lógicos) | | |
 
-Um governador (`apps/desktop/src/call/screenQuality.ts`, com testes) lê as estatísticas do
-encoder a cada 5 s **só enquanto compartilha**:
+Três regras, todas medidas numa chamada real com LiveKit **local** (rede perfeita), app de
+debug dirigido por CDP, a tela mostrando uma animação tipo jogo (câmera percorrendo um cenário
+detalhado) e um espectador inscrito:
 
-- `qualityLimitationReason` = `cpu` ou `bandwidth` em 3 amostras seguidas (~15 s) → desce um
-  degrau (1080p60 → 1080p30 → 720p30), inclusive nas opções manuais. **Nunca mantém 1080p60 se a
-  máquina ou a internet não sustentam**, e a interface avisa ("Qualidade reduzida para 720p 30
-  FPS (limite de CPU)").
-- O modo automático sobe um degrau após ~60 s sem limitação e com o encoder atingindo o FPS; só
-  chega a 1080p60 para conteúdo em movimento em máquinas com 8+ núcleos lógicos.
-- O WebRTC adapta bitrate continuamente e o LiveKit usa adaptive stream + dynacast nos receptores.
+1. **A resolução é do app, não do encoder** (`degradationPreference: maintain-resolution` em
+   todos os modos). Até a 0.2.8 o modo 60 FPS usava `maintain-framerate`, e aí o "quality scaler"
+   do WebRTC mandava na resolução: a transmissão 1080p60 começava em **288×180**, subia um
+   degrau a cada 5–10 s (432×270 aos 10 s, 576×360 aos 20 s, 1152×720 aos 40 s) e caía de novo
+   a qualquer oscilação, mesmo em rede perfeita. Agora, sob pressão, o encoder descarta quadros
+   e volta assim que a pressão passa; a resolução só muda pelo governador abaixo.
+2. **60 FPS é codificado pela placa de vídeo.** Duas coisas impediam:
+   - a flag `--in-process-gpu` do WebView2 (posta para economizar 20 MB e 80 ms na abertura)
+     **desliga a codificação de vídeo por hardware**; foi removida;
+   - o servidor LiveKit escolhe o perfil H.264 *constrained baseline* (`42e01f`), que o WebView2
+     só codifica em software (OpenH264). Quando a placa oferece o perfil *High*, o H.264 é
+     ofertado só como High (`withHardwareH264` em `callManager.ts`) e o servidor fica com ele.
+     Sem encoder de hardware nada muda (OpenH264, como antes).
+
+   | 1080p60, mesmo conteúdo | Encoder | Resolução enviada | FPS | QP (0–51, menor é melhor) |
+   |---|---|---|---|---|
+   | 0.2.8 (6 Mbps) | OpenH264 (CPU) | 288×180 → 576×360 em 25 s | 51–54 | 22–26 (numa imagem minúscula) |
+   | resolução fixa, 8 Mbps | OpenH264 (CPU) | 1728×1080 | 41–52, depois "limite de CPU" | 32–34 |
+   | + placa de vídeo (como ficou) | NVIDIA H.264 (Media Foundation) | 1728×1080 | **53–55** | **28** |
+
+   O espectador (cliente web no Chromium) recebeu 1728×1080 a 54,5 FPS decodificados, 0 quadros
+   descartados, 0 travamentos, 7,9 Mbps.
+3. **O governador só desce por um limite de verdade, e volta rápido**
+   (`apps/desktop/src/call/screenQuality.ts`, com testes; lê as estatísticas do encoder a cada
+   5 s, só enquanto compartilha):
+   - desce um degrau (1080p60 → 1080p30 → 720p30, inclusive nas opções manuais) após 3 amostras
+     seguidas (~15 s) de **CPU** insuficiente (`qualityLimitationReason = cpu`) ou de **conexão**
+     insuficiente: o controle de congestionamento libera menos de 80% do bitrate da opção **e**
+     o encoder está usando o que recebe. O `bandwidth` do WebRTC sozinho não conta: ele também
+     aparece quando a imagem é difícil de comprimir, em rede perfeita, e baixar a opção (e o
+     bitrate) só piorava. Na 0.2.8 era isso que acontecia: "Qualidade reduzida (limite de
+     conexão)" em localhost, 1080p60 → 1080p30 aos 30 s → 720p30 aos 45 s;
+   - sobe de volta após ~20 s sem limite (eram 60 s, **e** só com o encoder a ≥ 90% do FPS, o
+     que uma tela parada nunca atinge: ficava em 720p até algo se mexer). Se a opção mais alta
+     falhar de novo em seguida, a próxima tentativa espera o dobro (até ~4 min);
+   - os ~10 s seguintes a uma troca não contam contra a opção nova (o encoder ainda carrega as
+     restrições da anterior).
+
+   Verificado no app com as estatísticas forjadas para "a rede libera 1,5 Mbps, tudo em uso":
+   desceu para 720p aos ~27 s com o aviso de conexão e voltou a 1080p ~20 s depois de a
+   limitação acabar.
+
+O que continua como é: no modo 30 FPS (VP9 por software) uma imagem com muito movimento fica no
+teto de 4 Mbps com qualidade baixa (22–28 FPS nesta máquina) e volta ao normal ~10 s depois que o
+movimento para; para jogos, use 60 FPS. O começo de qualquer transmissão pode levar até ~30 s
+para chegar ao bitrate cheio quando a estimativa de banda do WebRTC arranca baixa (aconteceu em
+cerca de um terço das medições). O servidor LiveKit ainda pode reduzir quadros para um
+espectador com download insuficiente; isso não foi medido.
 
 ### Áudio da transmissão
 
@@ -120,9 +163,11 @@ explicação — capturar a saída inteira causaria o eco que o requisito proíb
 Enquanto transmite, o botão de tela (barra da chamada), o botão de engrenagem e o botão direito
 em "Sua tela" abrem o menu da transmissão (`views/StreamMenu.tsx`):
 
-- **Qualidade** (Automática, 720p 30, 1080p 30, 1080p 60): muda o tamanho da captura, o limite
-  do encoder (bitrate/FPS), a dica de conteúdo (`detail`/`motion`) e a preferência de degradação
-  **na mesma trilha**; quem assiste não vê interrupção. O codec é o do início da transmissão.
+- **Qualidade** (Automática, 720p 30, 1080p 30, 1080p 60): entre opções de 30 FPS muda só o
+  tamanho da captura e o limite do encoder (bitrate/FPS) **na mesma trilha**; quem assiste não
+  vê interrupção. Entrar ou sair de 60 FPS troca o codec (VP9 ↔ H.264 pela placa de vídeo), o
+  que exige publicar de novo: a transmissão recomeça sozinha na mesma tela (uma piscada para
+  quem assiste).
 - **Áudio da transmissão**: as três opções acima, com a lista de aplicativos que estão com som
   (atualizada a cada 3 s; ponto verde = tocando agora). Trocar a origem reinicia só a captura
   nativa: a trilha publicada é a mesma. "Sem áudio" despublica; voltar publica de novo.

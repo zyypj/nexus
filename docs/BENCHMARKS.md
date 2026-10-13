@@ -72,7 +72,7 @@ Observações honestas:
 
 | Mudança | Antes | Depois |
 |---|---|---|
-| `--in-process-gpu` no WebView2 | 166 MB privados, 439 ms | 144 MB, 356 ms (tela de login) |
+| `--in-process-gpu` no WebView2 (**removido na 0.3.0**: desliga a codificação de vídeo por hardware, ver SCREEN_SHARE.md) | 166 MB privados, 439 ms | 144 MB, 356 ms (tela de login) |
 | LiveKit carregado sob demanda | bundle 864 KB | 336 KB |
 | Fechar o `AudioContext` ao sair da call | 192 MB após call | 173 MB |
 | Testado e **rejeitado**: `--renderer-process-limit=1` | 166 MB | 168 MB (sem ganho) |

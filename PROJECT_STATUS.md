@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-10 (versão 0.2.8).
+Última atualização: 2026-10-13 (versão 0.3.0).
 
 ## Fase atual
 
@@ -90,7 +90,7 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
 
-## Não lançado — áudio da transmissão (Windows)
+## 0.3.0 — transmissão: áudio, opções ao vivo e qualidade (Windows)
 
 - **Corrigido: as vozes da call iam junto no áudio da transmissão** (quem assistia ouvia todo
   mundo, e a si mesmo, em dobro). A "árvore de processos" do process loopback do Windows só
@@ -102,10 +102,20 @@ aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Wi
   aplicativos marcados, vários ao mesmo tempo (misturados no Rust).
 - O texto de transmissões a 30 FPS voltou a usar a dica `detail` (publicar a trilha a trocava
   por `motion`).
+- **Qualidade da transmissão** (medições em docs/SCREEN_SHARE.md, seção "Qualidade"):
+  - no modo 60 FPS a resolução despencava para 288×180 e subia um degrau a cada 5–10 s, mesmo
+    em rede perfeita; agora a resolução é fixa e quem cede é o FPS;
+  - o governador confundia "imagem difícil" com "conexão ruim", rebaixava para 720p e levava
+    minutos para voltar (nunca, numa tela parada); agora só desce por limite real e volta em
+    ~20 s;
+  - 60 FPS passou a ser codificado pela placa de vídeo (a flag `--in-process-gpu` desligava
+    isso e o perfil H.264 negociado só existia em software); 1080p60 foi de 6 para 8 Mbps.
+  Custo: sem `--in-process-gpu` o app usa ~20 MB a mais e abre ~80 ms mais devagar.
 - Verificado em hardware: `loopback_probe` (regra dos filhos diretos, exclusão, mistura) e, no
   app de debug com LiveKit local dirigido por CDP, o áudio publicado e as trocas ao vivo.
-  **Não verificado:** com outra pessoa assistindo de verdade (só a trilha publicada foi medida),
-  no instalador de release e em Windows 10.
+  A qualidade foi medida com um espectador de verdade (cliente web) em rede local.
+  **Não verificado:** em rede real com perda/oscilação, placas Intel/AMD, espectador Android
+  recebendo H.264 High, o instalador de release e Windows 10.
 
 ## 0.2.8 — palco da chamada e arrastar e soltar (Windows)
 

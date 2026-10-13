@@ -27,11 +27,12 @@ static QUITTING: AtomicBool = AtomicBool::new(false);
 /// Chromium flags for the WebView2 process:
 /// - keep wry's defaults (no Edge OOUI / SmartScreen helpers);
 /// - disable intensive timer throttling so the gateway heartbeat keeps
-///   running while the window is hidden in the tray;
-/// - run the GPU service inside the browser process: measured -20 MB private
-///   memory and -80 ms startup (docs/BENCHMARKS.md), hardware decode intact.
-const BROWSER_ARGS: &str =
-    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,IntensiveWakeUpThrottling --in-process-gpu";
+///   running while the window is hidden in the tray.
+///
+/// Not `--in-process-gpu`: it saved 20 MB and 80 ms at startup
+/// (docs/BENCHMARKS.md) but turns hardware video ENCODING off, leaving screen
+/// shares to OpenH264 on the CPU (docs/SCREEN_SHARE.md).
+const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,IntensiveWakeUpThrottling";
 
 /// `NEXUS_WEBVIEW_ARGS` appends Chromium flags (benchmarking experiments).
 fn browser_args() -> String {

@@ -73,7 +73,7 @@ app, sem o prompt do WebView2.
 | Medida | Efeito medido |
 |---|---|
 | `livekit-client` carregado só ao entrar numa call | bundle inicial 864 KB → 336 KB |
-| `--in-process-gpu` no WebView2 | −20 MB privados, −80 ms de startup |
+| ~~`--in-process-gpu` no WebView2~~ | −20 MB privados, −80 ms de startup; **removido na 0.3.0** porque desligava a codificação de vídeo por hardware das transmissões |
 | `IntensiveWakeUpThrottling` desligado | heartbeat continua com a janela oculta na bandeja |
 | lista de mensagens virtualizada | DOM só com as mensagens visíveis |
 | `AudioContext` único, suspenso fora de calls | thread de áudio dorme no idle |
