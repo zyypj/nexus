@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-27 (versão 0.4.0 publicada: correções das chamadas, controle assistido e sons novos).
+Última atualização: 2026-10-27 (versão 0.4.5 publicada: menções com @, badges estilo Discord e número no ícone do app).
 
 ## Fase atual
 
@@ -106,7 +106,12 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
 
-## Não lançado — menções (@) e badges estilo Discord
+## 0.4.5 — menções (@) e badges estilo Discord
+
+Publicada em 2026-10-27 (workflow Release verde; `releases/latest/download/VERSION` e o
+`latest.json` assinado respondem 0.4.5; instalador, APK, servidor Linux e eggs presentes).
+O servidor precisa ser atualizado junto (migração `0003_mentions.sql`); apps 0.4.0 continuam
+funcionando com o servidor novo, com os badges antigos e mostrando `<@id>` cru no texto.
 
 - **Menções** com a sintaxe do Discord no texto: `<@usuário>`, `<@&cargo>`, `@everyone`, `@here`
   (fora de código). O servidor guarda em `message_mentions` (migração `0003_mentions.sql`) e manda
