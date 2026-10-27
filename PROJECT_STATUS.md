@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-13 (versão 0.3.0).
+Última atualização: 2026-10-26 (versão 0.4.0).
 
 ## Fase atual
 
@@ -89,6 +89,22 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
+
+## 0.4.0 — entrar nas chamadas sem falhar
+
+Correções para quem às vezes não conseguia entrar numa chamada, ou entrava pela metade:
+
+- **Windows:** entrar, sair e trocar de canal vão em ordem e o pedido mais recente vence (cliques
+  rápidos não se desfazem mais); o app não sai sozinho quando a resposta do servidor chega antes
+  do aviso "chamada criada"; ao reconectar, volta para o canal de voz mesmo se a chamada acabou
+  nesse meio-tempo; um microfone que falhou ao entrar é publicado de novo quando aparece um
+  dispositivo ou ao tirar o mudo.
+- **Servidor:** uma chamada que acabou entre achar e entrar é reaberta; uma expulsão atrasada da
+  chamada anterior não derruba mais quem acabou de voltar; a limpeza de chamada vazia não encerra
+  uma que voltou a ter gente; o webhook `participant_joined` põe de volta na lista quem o LiveKit
+  reconectou sozinho (antes ficava invisível para os outros). Testes de integração novos.
+- **Não verificado:** com o app rodando e o LiveKit real. Quem é reconectado sozinho pelo LiveKit
+  só volta para a lista com o **servidor** novo.
 
 ## 0.3.0 — transmissão: áudio, opções ao vivo e qualidade (Windows)
 
