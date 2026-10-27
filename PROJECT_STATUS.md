@@ -1,13 +1,14 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-27 (versão 0.3.0; correções das chamadas e controle assistido ainda não lançados).
+Última atualização: 2026-10-27 (versão 0.4.0 publicada: correções das chamadas, controle assistido e sons novos).
 
 ## Fase atual
 
 Controle remoto assistido no Windows: consentimento por pessoa, permissões de cargo/canal,
 limites por janela/área/ação, prioridade local de três segundos e barra nativa de emergência
 implementados. Typecheck, testes automatizados, clippy, build web e revisão visual do diálogo
-passaram. **Ainda não validado com dois PCs Windows; não considerar pronto para produção.**
+passaram. **Publicado na 0.4.0 a pedido do usuário sem o teste com dois PCs Windows**: o
+roteiro manual do REMOTE_CONTROL.md continua pendente e é o primeiro passo para confirmar o recurso.
 Fluxo, limites de segurança e roteiro manual em [REMOTE_CONTROL.md](docs/REMOTE_CONTROL.md).
 Revisão (2026-10-27): estado avisado pelo gateway em vez de consultas a cada 500 ms de todos na
 call; autorização dos comandos em cache (1,5 s, invalidada por mudança de cargos); janela de
@@ -105,11 +106,12 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
 
-## Não lançado — entrar nas chamadas sem falhar
+## 0.4.0 — entrar nas chamadas sem falhar, controle assistido e sons
 
-A v0.4.0 chegou a ser marcada em 2026-10-26 e foi cancelada antes de publicar arquivos (release e
-tag apagadas, versões de volta para 0.3.0); estas correções seguem no `main` para a próxima
-versão.
+Publicada em 2026-10-27 (workflow Release verde; `releases/latest/download/VERSION` e o
+`latest.json` assinado respondem 0.4.0). Uma primeira marcação da v0.4.0 em 2026-10-26 tinha sido
+cancelada antes de publicar arquivos. Inclui o controle remoto assistido e os sons descritos em
+"Fase atual", além das correções abaixo.
 
 Correções para quem às vezes não conseguia entrar numa chamada, ou entrava pela metade:
 
