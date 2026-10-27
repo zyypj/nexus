@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-26 (versão 0.4.0).
+Última atualização: 2026-10-26 (versão 0.3.0; correções das chamadas ainda não lançadas).
 
 ## Fase atual
 
@@ -90,7 +90,11 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
 
-## 0.4.0 — entrar nas chamadas sem falhar
+## Não lançado — entrar nas chamadas sem falhar
+
+A v0.4.0 chegou a ser marcada em 2026-10-26 e foi cancelada antes de publicar arquivos (release e
+tag apagadas, versões de volta para 0.3.0); estas correções seguem no `main` para a próxima
+versão.
 
 Correções para quem às vezes não conseguia entrar numa chamada, ou entrava pela metade:
 
