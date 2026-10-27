@@ -1,9 +1,10 @@
 import { MAX_ATTACHMENTS, MAX_MESSAGE_LENGTH, type Id, Permissions, hasPermission } from "@nexus/protocol";
-import { formatBytes } from "@nexus/shared";
+import { decodeMentions, formatBytes, mentionsToText } from "@nexus/shared";
 import { type ClipboardEvent, useEffect, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import { client, useNexus } from "../lib/nexus";
 import { VoiceRecorder } from "../lib/voiceRecorder";
+import { useMentions } from "./MentionPopup";
 
 interface Props {
   conversationId: Id;
@@ -41,6 +42,10 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
     replyTo ? s.messages[conversationId]?.items.find((m) => m.id === replyTo) : undefined,
   );
   const replyAuthor = useNexus((s) => (reply ? s.users[reply.author_id]?.display_name : undefined));
+  const replyText = useNexus((s) =>
+    reply ? mentionsToText(s, s.conversations[conversationId]?.server_id, reply.content) : "",
+  );
+  const mentions = useMentions(conversationId, ref, text, setText);
   const lastOwn = useNexus((s) => {
     const items = s.messages[conversationId]?.items ?? [];
     for (let i = items.length - 1; i >= 0; i--) {
@@ -90,7 +95,7 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
   }
 
   async function send() {
-    const content = text.trim();
+    const content = mentions.encode(text.trim());
     if (!content && files.length === 0) return;
     if (content.length > MAX_MESSAGE_LENGTH) {
       setError(`Mensagem muito longa (máx. ${MAX_MESSAGE_LENGTH} caracteres).`);
@@ -99,6 +104,7 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
     const toSend = files;
     setText("");
     setFiles([]);
+    mentions.close();
     onClearReply();
     try {
       await client().sendMessage(conversationId, content, {
@@ -178,7 +184,7 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
       {reply && (
         <div className="composer-reply">
           <Icon name="reply" size={14} />
-          Respondendo a <strong>{replyAuthor}</strong>: {reply.content.slice(0, 80) || "Anexo"}
+          Respondendo a <strong>{replyAuthor}</strong>: {replyText.slice(0, 80) || "Anexo"}
           <button type="button" className="icon-btn small" onClick={onClearReply}>
             <Icon name="x" size={14} />
           </button>
@@ -197,6 +203,7 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
         </div>
       )}
       {error && <div className="form-error">{error}</div>}
+      {mentions.popup}
       {recordingMs !== null ? (
         <div className="composer-row recording">
           <button type="button" className="icon-btn" title="Cancelar gravação" onClick={() => void finishVoice(false)}>
@@ -240,19 +247,24 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
           onPaste={onPaste}
           onChange={(e) => {
             setText(e.target.value);
+            mentions.sync(e.target.value);
             if (e.target.value) client().typing(conversationId);
             else client().stopTyping(conversationId);
           }}
+          onSelect={() => mentions.sync()}
+          onBlur={() => mentions.close()}
           onKeyDown={(e) => {
+            if (mentions.onKeyDown(e)) return;
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               void send();
             } else if (e.key === "ArrowUp" && !text && lastOwn) {
               // Quick edit of the last own message.
               e.preventDefault();
-              const next = prompt("Editar mensagem", lastOwn.content);
-              if (next !== null && next.trim() !== lastOwn.content)
-                void client().editMessage(conversationId, lastOwn.id, next.trim());
+              const next = prompt("Editar mensagem", decodeMentions(client().store.getState(), conversationId, lastOwn.content));
+              const encoded = next === null ? null : mentions.encode(next.trim());
+              if (encoded !== null && encoded !== lastOwn.content)
+                void client().editMessage(conversationId, lastOwn.id, encoded);
             } else if (e.key === "Escape" && replyTo) onClearReply();
           }}
         />

@@ -9,7 +9,9 @@ import {
   initialState,
   memberColor,
   serverChannels,
+  serverMentions,
   sortedConversations,
+  totalBadge,
   totalUnread,
   typingUsers,
   upsertMessage,
@@ -34,6 +36,7 @@ function ready(): Ready {
         created_at: 0,
         last_read_message_id: "m1",
         unread_count: 0,
+        mention_count: 0,
       },
     ],
     presences: [{ user_id: "u-joao", status: "online" }],
@@ -51,6 +54,9 @@ const msg = (id: string, author = "u-joao", extra: Partial<Message> = {}): Messa
   reply_to: null,
   attachments: [],
   reactions: [],
+  mentions: [],
+  mention_roles: [],
+  mention_everyone: false,
   created_at: 0,
   edited_at: null,
   ...extra,
@@ -200,6 +206,7 @@ describe("servers", () => {
     created_at: 0,
     last_read_message_id: null,
     unread_count: 0,
+    mention_count: 0,
     server_id: "srv",
     category_id: "cat",
     position: 0,
@@ -241,6 +248,35 @@ describe("servers", () => {
     expect(groups[0]?.channels.map((c) => c.id)).toEqual(["geral", "voz"]);
     expect(memberColor(s.servers.srv as ServerView, "u-joao")).toBe("#5b73f7");
     expect(memberColor(s.servers.srv as ServerView, "u-me")).toBeUndefined();
+  });
+
+  it("channels count every message as unread but only mentions for the badge", () => {
+    let s = withReady([server([channel("geral")])]);
+    const inGeral = (id: string, extra: Partial<Message> = {}) => msg(id, "u-joao", { conversation_id: "geral", ...extra });
+    s = apply(s, { t: "MESSAGE_CREATE", d: inGeral("g1") });
+    expect(s.conversations.geral?.unread_count).toBe(1);
+    expect(s.conversations.geral?.mention_count).toBe(0);
+    expect(serverMentions(s, "srv")).toBe(0);
+    s = apply(s, { t: "MESSAGE_CREATE", d: inGeral("g2", { mentions: ["u-me"] }) });
+    s = apply(s, { t: "MESSAGE_CREATE", d: inGeral("g3", { mention_everyone: true }) });
+    s = apply(s, { t: "MESSAGE_CREATE", d: inGeral("g4", { mentions: ["u-joao"] }) });
+    expect(s.conversations.geral?.unread_count).toBe(4);
+    expect(s.conversations.geral?.mention_count).toBe(2);
+    expect(serverMentions(s, "srv")).toBe(2);
+    // DM messages are mentions too; the taskbar adds everything up.
+    s = apply(s, { t: "MESSAGE_CREATE", d: msg("m2") });
+    expect(totalUnread(s)).toBe(1);
+    expect(totalBadge(s)).toBe(3);
+    s = apply(s, { t: "CONVERSATION_READ", d: { conversation_id: "geral", message_id: "g4" } });
+    expect(s.conversations.geral?.mention_count).toBe(0);
+    expect(totalBadge(s)).toBe(1);
+  });
+
+  it("role mentions count for members of the role", () => {
+    let s = withReady([server([channel("geral")])]);
+    s = { ...s, me: { ...(s.me as NonNullable<NexusState["me"]>), id: "u-joao" } };
+    s = apply(s, { t: "MESSAGE_CREATE", d: msg("g1", "u-me", { conversation_id: "geral", mention_roles: ["mod"] }) });
+    expect(s.conversations.geral?.mention_count).toBe(1);
   });
 
   it("SERVER_UPDATE replaces the channel set (hidden channels disappear)", () => {

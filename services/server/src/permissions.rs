@@ -40,8 +40,10 @@ pub const MANAGE_NICKNAMES: i64 = 1 << 16;
 pub const MOVE_MEMBERS: i64 = 1 << 17;
 
 pub const REQUEST_CONTROL: i64 = 1 << 18;
+/// Mention @everyone and @here (the mention pings; without it the text is plain).
+pub const MENTION_EVERYONE: i64 = 1 << 19;
 
-pub const ALL: i64 = (1 << 19) - 1;
+pub const ALL: i64 = (1 << 20) - 1;
 
 /// What everyone can do in a new server.
 pub const DEFAULT_EVERYONE: i64 = VIEW_CHANNEL
@@ -52,7 +54,8 @@ pub const DEFAULT_EVERYONE: i64 = VIEW_CHANNEL
     | SPEAK
     | VIDEO
     | CREATE_INVITE
-    | CHANGE_NICKNAME;
+    | CHANGE_NICKNAME
+    | MENTION_EVERYONE;
 
 /// Permissions that only make sense per channel (allowed in overwrites).
 pub const CHANNEL_SCOPED: i64 = VIEW_CHANNEL
@@ -63,7 +66,8 @@ pub const CHANNEL_SCOPED: i64 = VIEW_CHANNEL
     | CONNECT
     | SPEAK
     | VIDEO
-    | REQUEST_CONTROL;
+    | REQUEST_CONTROL
+    | MENTION_EVERYONE;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct RoleRow {

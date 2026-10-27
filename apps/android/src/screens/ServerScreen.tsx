@@ -1,5 +1,5 @@
 import { type ConversationView, type Id, Permissions, type ServerView, hasPermission } from '@nexus/protocol';
-import { type ChannelGroup, callForConversation, memberColor, memberName, serverChannels } from '@nexus/shared';
+import { type ChannelGroup, badgeCount, callForConversation, memberColor, memberName, serverChannels } from '@nexus/shared';
 import React, { useMemo, useState } from 'react';
 import { Alert, Modal, Pressable, Share, StyleSheet, Text, TextInput, View, ScrollView } from 'react-native';
 import type { Nav } from '../App';
@@ -145,7 +145,9 @@ function Category({ group, server, nav }: { group: ChannelGroup; server: ServerV
 }
 
 function TextRow({ channel, nav }: { channel: ConversationView; nav: Nav }) {
+  // Discord style: unread = white name; only mentions get the red count.
   const unread = channel.unread_count;
+  const mentions = badgeCount(channel);
   const locked = !hasPermission(channel.permissions, Permissions.SEND_MESSAGES);
   return (
     <Pressable
@@ -156,9 +158,9 @@ function TextRow({ channel, nav }: { channel: ConversationView; nav: Nav }) {
       <Text style={[styles.channelName, unread > 0 && styles.unread]} numberOfLines={1}>
         {channel.name}
       </Text>
-      {unread > 0 && (
+      {mentions > 0 && (
         <View style={common.badge}>
-          <Text style={common.badgeText}>{unread >= 100 ? '99+' : unread}</Text>
+          <Text style={common.badgeText}>{mentions >= 100 ? '99+' : mentions}</Text>
         </View>
       )}
     </Pressable>

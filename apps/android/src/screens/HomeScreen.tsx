@@ -4,6 +4,7 @@ import {
   conversationTitle,
   dmPeer,
   serverHasUnread,
+  serverMentions,
   sortedConversations,
   totalUnread,
 } from '@nexus/shared';
@@ -98,8 +99,9 @@ function ServerRail({ selected, nav }: { selected: string | null; nav: Nav }) {
 
 const ServerRailItem = memo(function ServerRailItem({ server, active }: { server: ServerView; active: boolean }) {
   const unread = useNexus((s) => serverHasUnread(s, server.id));
+  const mentions = useNexus((s) => serverMentions(s, server.id));
   return (
-    <RailItem active={active} unread={unread} label={server.name} onPress={() => setHomeUi({ serverId: server.id })}>
+    <RailItem active={active} unread={unread} badge={mentions} label={server.name} onPress={() => setHomeUi({ serverId: server.id })}>
       <ServerIcon server={server} size={48} rounded={active ? 16 : 24} />
     </RailItem>
   );

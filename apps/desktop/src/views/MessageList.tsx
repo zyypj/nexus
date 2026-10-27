@@ -1,5 +1,16 @@
 import { type Attachment, type Id, Permissions, hasPermission } from "@nexus/protocol";
-import { type ClientMessage, formatBytes, formatDay, formatTime, memberColor, memberName, sameDay } from "@nexus/shared";
+import {
+  type ClientMessage,
+  formatBytes,
+  formatDay,
+  formatTime,
+  memberColor,
+  decodeMentions,
+  memberName,
+  mentionsMe,
+  mentionsToText,
+  sameDay,
+} from "@nexus/shared";
 import { QUICK_REACTIONS } from "@nexus/ui";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -12,6 +23,7 @@ import { openProfile } from "../lib/dialogs";
 import { client, useNexus } from "../lib/nexus";
 import { openExternal } from "../lib/platform";
 import { RichText } from "../lib/richText";
+import { useMentions } from "./MentionPopup";
 import { userMenu } from "./menus";
 
 const GROUP_WINDOW_MS = 5 * 60_000;
@@ -124,6 +136,11 @@ const MessageItem = memo(function MessageItem({
   const canModerate = channelPerms !== undefined && hasPermission(channelPerms, Permissions.MANAGE_MESSAGES);
   const authorBlocked = useNexus((s) => !!s.blocked[m.author_id]);
   const replyAuthor = useNexus((s) => (m.reply_to ? s.users[m.reply_to.author_id]?.display_name : undefined));
+  const replyText = useNexus((s) =>
+    m.reply_to ? mentionsToText(s, s.conversations[m.conversation_id]?.server_id, m.reply_to.content) : "",
+  );
+  // Discord style highlight for messages that mention you (replies included).
+  const pingsMe = useNexus((s) => mentionsMe(s, m));
   const [editing, setEditing] = useState(false);
   const [picker, setPicker] = useState<HTMLElement | null>(null);
   const [revealed, setRevealed] = useState(false);
@@ -146,7 +163,10 @@ const MessageItem = memo(function MessageItem({
       (!!selection || !!m.content) && {
         label: selection ? "Copiar seleção" : "Copiar texto",
         icon: "copy",
-        run: () => void navigator.clipboard.writeText(selection || m.content).catch(() => undefined),
+        run: () =>
+          void navigator.clipboard
+            .writeText(selection || mentionsToText(client().store.getState(), serverId, m.content))
+            .catch(() => undefined),
       },
       canDelete && { separator: true },
       canDelete && { label: "Apagar mensagem", icon: "trash", danger: true, run: remove },
@@ -173,7 +193,7 @@ const MessageItem = memo(function MessageItem({
 
   return (
     <div
-      className={`message${compact ? " compact" : ""}${m.local ? ` local ${m.local}` : ""}${picker ? " picking" : ""}`}
+      className={`message${compact ? " compact" : ""}${m.local ? ` local ${m.local}` : ""}${picker ? " picking" : ""}${pingsMe ? " mentioned" : ""}`}
       onContextMenu={messageMenu}
     >
       {!compact && (
@@ -186,7 +206,7 @@ const MessageItem = memo(function MessageItem({
         {m.reply_to && (
           <div className="reply-ref">
             <Icon name="reply" size={12} />
-            <strong>{replyAuthor ?? "?"}</strong> {m.reply_to.content || "Anexo"}
+            <strong>{replyAuthor ?? "?"}</strong> {replyText || "Anexo"}
           </div>
         )}
         {!compact && (
@@ -208,7 +228,7 @@ const MessageItem = memo(function MessageItem({
         ) : (
           m.content && (
             <div className="message-text">
-              <RichText text={m.content} />
+              <RichText text={m.content} serverId={serverId} />
               {m.edited_at && <small className="edited"> (editada)</small>}
             </div>
           )
@@ -381,8 +401,11 @@ function Lightbox({ url, alt, onClose }: { url: string; alt: string; onClose: ()
 }
 
 function EditBox({ message, onDone }: { message: ClientMessage; onDone: () => void }) {
-  const [text, setText] = useState(message.content);
+  const [text, setText] = useState(() =>
+    decodeMentions(client().store.getState(), message.conversation_id, message.content),
+  );
   const ref = useRef<HTMLTextAreaElement>(null);
+  const mentions = useMentions(message.conversation_id, ref, text, setText);
   useEffect(() => {
     const el = ref.current;
     if (el) {
@@ -391,16 +414,24 @@ function EditBox({ message, onDone }: { message: ClientMessage; onDone: () => vo
     }
   }, []);
   const save = async () => {
-    if (text.trim() !== message.content) await client().editMessage(message.conversation_id, message.id, text.trim());
+    const content = mentions.encode(text.trim());
+    if (content !== message.content) await client().editMessage(message.conversation_id, message.id, content);
     onDone();
   };
   return (
     <div className="edit-box">
+      {mentions.popup}
       <textarea
         ref={ref}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          mentions.sync(e.target.value);
+        }}
+        onSelect={() => mentions.sync()}
+        onBlur={() => mentions.close()}
         onKeyDown={(e) => {
+          if (mentions.onKeyDown(e)) return;
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             void save();

@@ -64,6 +64,7 @@ export const PERMISSION_INFO: { key: keyof typeof Permissions; label: string; he
   { key: "ATTACH_FILES", label: "Enviar arquivos", help: "Imagens, vídeos, áudios e mensagens de voz.", group: "Texto" },
   { key: "ADD_REACTIONS", label: "Adicionar reações", help: "", group: "Texto" },
   { key: "MANAGE_MESSAGES", label: "Gerenciar mensagens", help: "Apagar mensagens de outras pessoas.", group: "Texto" },
+  { key: "MENTION_EVERYONE", label: "Mencionar @everyone e @here", help: "Notificar todos do canal (@everyone) ou quem está online (@here). Sem isso o texto não notifica ninguém.", group: "Texto" },
   { key: "CONNECT", label: "Conectar", help: "Entrar nos canais de voz.", group: "Voz" },
   { key: "SPEAK", label: "Falar", help: "Sem isso a pessoa só escuta.", group: "Voz" },
   { key: "REQUEST_CONTROL", label: "Solicitar controle remoto", help: "Pedir controle de uma janela compartilhada. Exige aceite explícito do dono a cada sessão.", group: "Voz" },

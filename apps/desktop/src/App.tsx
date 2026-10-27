@@ -1,4 +1,4 @@
-import { totalUnread } from "@nexus/shared";
+import { totalBadge } from "@nexus/shared";
 import { useEffect, useRef, useState } from "react";
 import { calls, useCall } from "./call/callStore";
 import { createClient, useNexus, useSession } from "./lib/nexus";
@@ -92,8 +92,9 @@ function CallLifecycle() {
   return null;
 }
 
+/** DMs + mentions + friend requests on the taskbar icon. */
 function UnreadBadge() {
-  const unread = useNexus(totalUnread);
+  const unread = useNexus(totalBadge);
   useEffect(() => {
     void setBadge(unread);
   }, [unread]);

@@ -55,14 +55,58 @@ export async function listen<T>(event: string, fn: (payload: T) => void): Promis
   return listen<T>(event, (e) => fn(e.payload));
 }
 
+/** RGBA pixels of a red circle with the count, for the taskbar overlay. */
+function badgePixels(count: number, size = 32): Uint8ClampedArray | null {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  const label = count > 99 ? "99+" : String(count);
+  ctx.fillStyle = "#f23f43";
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const px = label.length === 1 ? 22 : label.length === 2 ? 18 : 13;
+  ctx.font = `800 ${Math.round((px * size) / 32)}px "Segoe UI", system-ui, sans-serif`;
+  ctx.fillText(label, size / 2, size / 2 + size / 32);
+  return ctx.getImageData(0, 0, size, size).data;
+}
+
+let lastBadge = -1;
+
+/**
+ * Unread count on the app icon, like Discord/WhatsApp: a red circle with the
+ * number over the taskbar button (Windows overlay icon), plus "(n) Nexus" in
+ * the window title.
+ */
 export async function setBadge(count: number): Promise<void> {
-  if (!isTauri) return;
+  if (!isTauri || count === lastBadge) return;
+  lastBadge = count;
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  const w = getCurrentWindow();
   try {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    const w = getCurrentWindow();
     await w.setTitle(count > 0 ? `(${count > 99 ? "99+" : count}) Nexus` : "Nexus");
   } catch {
     // Title update is cosmetic.
+  }
+  try {
+    if (count <= 0) {
+      await w.setOverlayIcon(undefined);
+      return;
+    }
+    const pixels = badgePixels(count);
+    if (!pixels) return;
+    const { Image } = await import("@tauri-apps/api/image");
+    const img = await Image.new(new Uint8Array(pixels.buffer), 32, 32);
+    await w.setOverlayIcon(img);
+    await img.close();
+  } catch {
+    // Not Windows (overlay icons are Windows-only): the dock badge instead.
+    await w.setBadgeCount(count > 0 ? count : undefined).catch(() => undefined);
   }
 }
 

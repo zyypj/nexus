@@ -17,6 +17,7 @@ use crate::{
     db::{Db, new_id, now_ms},
     error::{ApiError, ApiResult},
     gateway::events::{self, conversation_members},
+    mentions,
     models::{Attachment, ConversationKind, Message, Reaction, ReplyPreview},
     rate_limit::rules,
     state::AppState,
@@ -36,6 +37,7 @@ struct MessageRow {
     reply_to_id: Option<String>,
     reply_author_id: Option<String>,
     reply_content: Option<String>,
+    mention_everyone: i64,
     created_at: i64,
     edited_at: Option<i64>,
 }
@@ -43,7 +45,7 @@ struct MessageRow {
 macro_rules! message_select {
     () => {
         "SELECT m.id, m.conversation_id, m.author_id, m.content, m.reply_to_id,
-        r.author_id AS reply_author_id, r.content AS reply_content, m.created_at, m.edited_at
+        r.author_id AS reply_author_id, r.content AS reply_content, m.mention_everyone, m.created_at, m.edited_at
     FROM messages m LEFT JOIN messages r ON r.id = m.reply_to_id"
     };
 }
@@ -122,25 +124,49 @@ async fn hydrate(db: &Db, storage: &Storage, rows: Vec<MessageRow>) -> ApiResult
         }
     }
 
+    let sql = format!(
+        "SELECT message_id, kind, target_id FROM message_mentions
+         WHERE message_id IN ({ph}) AND kind IN ('user', 'role')"
+    );
+    let mut q = sqlx::query_as::<_, (String, String, String)>(sqlx::AssertSqlSafe(sql));
+    for id in &ids {
+        q = q.bind(*id);
+    }
+    let mut mentions: HashMap<String, (Vec<String>, Vec<String>)> = HashMap::new();
+    for (mid, kind, target) in q.fetch_all(db).await? {
+        let entry = mentions.entry(mid).or_default();
+        if kind == "role" {
+            entry.1.push(target);
+        } else {
+            entry.0.push(target);
+        }
+    }
+
     Ok(rows
         .into_iter()
-        .map(|r| Message {
-            attachments: attachments.remove(&r.id).unwrap_or_default(),
-            reactions: reactions.remove(&r.id).unwrap_or_default(),
-            reply_to: match (r.reply_to_id, r.reply_author_id, r.reply_content) {
-                (Some(id), Some(author_id), Some(content)) => Some(ReplyPreview {
-                    id,
-                    author_id,
-                    content: content.chars().take(200).collect(),
-                }),
-                _ => None,
-            },
-            id: r.id,
-            conversation_id: r.conversation_id,
-            author_id: r.author_id,
-            content: r.content,
-            created_at: r.created_at,
-            edited_at: r.edited_at,
+        .map(|r| {
+            let (mentions, mention_roles) = mentions.remove(&r.id).unwrap_or_default();
+            Message {
+                attachments: attachments.remove(&r.id).unwrap_or_default(),
+                reactions: reactions.remove(&r.id).unwrap_or_default(),
+                mentions,
+                mention_roles,
+                mention_everyone: r.mention_everyone != 0,
+                reply_to: match (r.reply_to_id, r.reply_author_id, r.reply_content) {
+                    (Some(id), Some(author_id), Some(content)) => Some(ReplyPreview {
+                        id,
+                        author_id,
+                        content: content.chars().take(200).collect(),
+                    }),
+                    _ => None,
+                },
+                id: r.id,
+                conversation_id: r.conversation_id,
+                author_id: r.author_id,
+                content: r.content,
+                created_at: r.created_at,
+                edited_at: r.edited_at,
+            }
         })
         .collect())
 }
@@ -221,6 +247,50 @@ fn validate_content(raw: &str) -> ApiResult<String> {
     Ok(content)
 }
 
+/// Parses and checks the mentions of a message's text (see mentions.rs).
+/// `perms` = the author's permissions in the channel (None for DMs/groups,
+/// where @everyone/@here do nothing).
+async fn resolve_mentions(
+    state: &AppState,
+    conversation_id: &str,
+    author_id: &str,
+    content: &str,
+    perms: Option<i64>,
+    viewers: &[String],
+    reply_author: Option<&str>,
+) -> ApiResult<mentions::Resolved> {
+    let mut parsed = mentions::parse(content);
+    // A reply pings the replied-to author, as on Discord.
+    if let Some(a) = reply_author.filter(|a| *a != author_id && !parsed.users.iter().any(|u| u == a)) {
+        parsed.users.push(a.to_string());
+    }
+    if parsed.is_empty() {
+        return Ok(mentions::Resolved::default());
+    }
+    let roles: Vec<String> = if parsed.roles.is_empty() {
+        Vec::new()
+    } else {
+        // @everyone's role id is the server id: mentioning it as a role does nothing.
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT r.id FROM server_roles r JOIN conversations c ON c.server_id = r.server_id
+             WHERE c.id = ? AND r.id != r.server_id",
+        )
+        .bind(conversation_id)
+        .fetch_all(&state.db)
+        .await?;
+        rows.into_iter().map(|r| r.0).collect()
+    };
+    let can_everyone = perms.is_some_and(|p| p & crate::permissions::MENTION_EVERYONE != 0);
+    Ok(mentions::resolve(
+        parsed,
+        author_id,
+        viewers,
+        &roles,
+        can_everyone,
+        |u| state.hub.is_online(u),
+    ))
+}
+
 pub async fn create(
     State(state): State<AppState>,
     user: AuthUser,
@@ -233,6 +303,7 @@ pub async fn create(
     if kind == ConversationKind::Voice {
         return Err(ApiError::bad("voice channels have no chat"));
     }
+    let mut perms = None;
     if kind.is_channel() {
         let p = crate::permissions::require_channel_perm(
             &state.db,
@@ -245,6 +316,7 @@ pub async fn create(
         if !body.attachment_ids.is_empty() && p & crate::permissions::ATTACH_FILES == 0 {
             return Err(ApiError::Forbidden("you cannot attach files in this channel"));
         }
+        perms = Some(p);
     }
     let content = validate_content(&body.content)?;
     if body.attachment_ids.len() > MAX_ATTACHMENTS {
@@ -255,17 +327,32 @@ pub async fn create(
     if content.is_empty() && body.attachment_ids.is_empty() {
         return Err(ApiError::bad("message cannot be empty"));
     }
+    let mut reply_author = None;
     if let Some(reply) = &body.reply_to_id {
         validate_id(reply)?;
-        let ok: Option<(i64,)> = sqlx::query_as("SELECT 1 FROM messages WHERE id = ? AND conversation_id = ?")
-            .bind(reply)
-            .bind(&conversation_id)
-            .fetch_optional(&state.db)
-            .await?;
-        if ok.is_none() {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT author_id FROM messages WHERE id = ? AND conversation_id = ?")
+                .bind(reply)
+                .bind(&conversation_id)
+                .fetch_optional(&state.db)
+                .await?;
+        let Some((author,)) = row else {
             return Err(ApiError::bad("reply target not found"));
-        }
+        };
+        reply_author = Some(author);
     }
+
+    let members = conversation_members(&state.db, &conversation_id).await?;
+    let mentioned = resolve_mentions(
+        &state,
+        &conversation_id,
+        &user.id,
+        &content,
+        perms,
+        &members,
+        reply_author.as_deref(),
+    )
+    .await?;
 
     let id = new_id();
     let now = now_ms();
@@ -281,6 +368,7 @@ pub async fn create(
     .bind(now)
     .execute(&mut *tx)
     .await?;
+    mentions::save(&mut tx, &id, &mentioned).await?;
     for att in &body.attachment_ids {
         validate_id(att).map_err(|_| ApiError::bad("invalid attachment id"))?;
         let res = sqlx::query(
@@ -318,7 +406,6 @@ pub async fn create(
     tx.commit().await?;
 
     let message = load_message(&state.db, &state.storage, &conversation_id, &id).await?;
-    let members = conversation_members(&state.db, &conversation_id).await?;
     let mut payload = serde_json::to_value(&message).map_err(anyhow::Error::from)?;
     if let Some(nonce) = body.nonce.filter(|n| n.len() <= 64) {
         payload["nonce"] = json!(nonce);
@@ -355,14 +442,33 @@ pub async fn edit(
     if content == existing.content {
         return Ok(Json(existing));
     }
+    let perms = if kind.is_channel() {
+        Some(crate::permissions::require_channel_perm(&state.db, &conversation_id, &user.id, 0, "").await?)
+    } else {
+        None
+    };
+    let members = conversation_members(&state.db, &conversation_id).await?;
+    let reply_author = existing.reply_to.as_ref().map(|r| r.author_id.as_str());
+    let mentioned = resolve_mentions(
+        &state,
+        &conversation_id,
+        &user.id,
+        &content,
+        perms,
+        &members,
+        reply_author,
+    )
+    .await?;
+    let mut tx = state.db.begin().await?;
     sqlx::query("UPDATE messages SET content = ?, edited_at = ? WHERE id = ?")
         .bind(&content)
         .bind(now_ms())
         .bind(&message_id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
+    mentions::save(&mut tx, &message_id, &mentioned).await?;
+    tx.commit().await?;
     let message = load_message(&state.db, &state.storage, &conversation_id, &message_id).await?;
-    let members = conversation_members(&state.db, &conversation_id).await?;
     state
         .hub
         .send(members.iter().map(String::as_str), events::MESSAGE_UPDATE, &message);

@@ -36,7 +36,7 @@ function markRead(ids: Id[]) {
   for (const id of ids) {
     const conv = conversations[id];
     if (!conv?.last_message_id || conv.unread_count === 0) continue;
-    conversations[id] = { ...conv, unread_count: 0, last_read_message_id: conv.last_message_id };
+    conversations[id] = { ...conv, unread_count: 0, mention_count: 0, last_read_message_id: conv.last_message_id };
     void c.api.ack(id, conv.last_message_id).catch(() => undefined);
     changed = true;
   }

@@ -6,6 +6,7 @@ pub mod error;
 pub mod gateway;
 pub mod invites;
 pub mod livekit;
+pub mod mentions;
 pub mod models;
 pub mod permissions;
 pub mod rate_limit;

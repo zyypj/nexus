@@ -106,6 +106,29 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
 
+## Não lançado — menções (@) e badges estilo Discord
+
+- **Menções** com a sintaxe do Discord no texto: `<@usuário>`, `<@&cargo>`, `@everyone`, `@here`
+  (fora de código). O servidor guarda em `message_mentions` (migração `0003_mentions.sql`) e manda
+  `mentions`, `mention_roles`, `mention_everyone` em cada mensagem. `@here` vale só para quem
+  estava online no envio. Responder a alguém também marca a pessoa. Editar recalcula.
+- Permissão nova **`MENTION_EVERYONE`** (bit 19): sem ela `@everyone`/`@here` não notificam.
+  Servidores novos já dão para @everyone; **nos servidores que já existem só dono/admin têm** até
+  alguém marcar a permissão no cargo.
+- `ConversationView.mention_count` = o que o badge vermelho mostra: menções não lidas nos canais,
+  toda mensagem não lida em DM/grupo.
+- **Windows:** canal não lido fica branco com bolinha branca, lido fica cinza, e só menção mostra
+  o número vermelho (canal e ícone do servidor). Mensagem que te marca fica destacada. Popup de
+  `@` no campo de mensagem e na edição (↑/↓, Enter/Tab, Esc). Notificação com som para menções em
+  canais. **Ícone na barra de tarefas** com bolinha vermelha e número (DMs + menções + pedidos de
+  amizade) via overlay icon.
+- **Android:** mostra as menções como `@Nome`, mesma regra dos badges; `@Nome`/`@usuário`
+  digitado vira menção (sem popup ainda).
+- Testes: integração (`mentions_count_like_discord`, `dm_messages_count_as_mentions`), unitários do
+  parser em Rust e do store/menções em TS. Conferido no navegador (sidebar, popup, chips, contagem
+  ao vivo). **Não verificado:** o overlay da barra de tarefas no app Windows instalado, e Android
+  em aparelho.
+
 ## 0.4.0 — entrar nas chamadas sem falhar, controle assistido e sons
 
 Publicada em 2026-10-27 (workflow Release verde; `releases/latest/download/VERSION` e o

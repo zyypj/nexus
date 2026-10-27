@@ -175,6 +175,9 @@ pub struct ConversationView {
     pub conversation: Conversation,
     pub last_read_message_id: Option<String>,
     pub unread_count: i64,
+    /// What the red badge shows: unread mentions in server channels, every
+    /// unread message in DMs and groups. Capped at 100 like `unread_count`.
+    pub mention_count: i64,
     /// Server channels: the viewer's effective permissions (see permissions.rs).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permissions: Option<i64>,
@@ -299,6 +302,12 @@ pub struct Message {
     pub reply_to: Option<ReplyPreview>,
     pub attachments: Vec<Attachment>,
     pub reactions: Vec<Reaction>,
+    /// Mentioned user ids (`<@id>` in the text, only people who can see it).
+    pub mentions: Vec<String>,
+    /// Mentioned role ids (`<@&id>`).
+    pub mention_roles: Vec<String>,
+    /// @everyone or @here, when the author was allowed to.
+    pub mention_everyone: bool,
     pub created_at: i64,
     pub edited_at: Option<i64>,
 }

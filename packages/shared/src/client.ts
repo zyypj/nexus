@@ -1,6 +1,7 @@
 import type { AuthResponse, GatewayEvents, Id, Message } from "@nexus/protocol";
 import { ApiClient, type TokenStore, type UploadSource } from "./api";
 import { GatewayClient } from "./gateway";
+import { mentionsMe } from "./mentions";
 import {
   type ClientMessage,
   type MessageBucket,
@@ -207,7 +208,7 @@ export class NexusClient {
       this.store.setState({
         conversations: {
           ...s.conversations,
-          [id]: { ...conv, unread_count: 0, last_read_message_id: conv.last_message_id },
+          [id]: { ...conv, unread_count: 0, mention_count: 0, last_read_message_id: conv.last_message_id },
         },
       });
       void this.api.ack(id, conv.last_message_id).catch(() => undefined);
@@ -219,8 +220,8 @@ export class NexusClient {
     const visible = this.opts.isAppVisible?.() ?? true;
     if (s.activeConversationId === m.conversation_id && visible) {
       this.markRead(m.conversation_id);
-    } else if (!s.blocked[m.author_id] && !s.conversations[m.conversation_id]?.server_id) {
-      // Server channels only show as unread (no popup/sound for every message).
+    } else if (!s.blocked[m.author_id] && (!s.conversations[m.conversation_id]?.server_id || mentionsMe(s, m))) {
+      // Server channels only notify mentions; other messages just show as unread.
       this.opts.onNotify?.(m, s);
     }
   }
@@ -246,6 +247,9 @@ export class NexusClient {
       reply_to: null,
       attachments: [],
       reactions: [],
+      mentions: [],
+      mention_roles: [],
+      mention_everyone: false,
       created_at: Date.now(),
       edited_at: null,
       nonce,

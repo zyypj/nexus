@@ -1,5 +1,5 @@
 import type { ServerInvitePreview, ServerView } from "@nexus/protocol";
-import { serverHasUnread, totalUnread } from "@nexus/shared";
+import { serverHasUnread, serverMentions, totalUnread } from "@nexus/shared";
 import { memo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { openContextMenu } from "../components/ContextMenu";
@@ -72,6 +72,7 @@ export function ServerRail() {
 
 const ServerRailItem = memo(function ServerRailItem({ server, active }: { server: ServerView; active: boolean }) {
   const unread = useNexus((s) => serverHasUnread(s, server.id));
+  const mentions = useNexus((s) => serverMentions(s, server.id));
   const drop = useDrop(
     (item) => (item.type === "server" && item.id !== server.id ? "reorder" : null),
     (item, place) => item.type === "server" && place !== "into" && moveServer(item.id, server.id, place),
@@ -80,6 +81,7 @@ const ServerRailItem = memo(function ServerRailItem({ server, active }: { server
     <RailItem
       active={active}
       unread={unread}
+      badge={mentions}
       label={server.name}
       onClick={() => openServer(server.id)}
       onContextMenu={(e) => openContextMenu(e, () => serverMenu(server.id))}

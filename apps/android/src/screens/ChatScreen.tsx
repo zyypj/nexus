@@ -7,9 +7,17 @@ import {
   formatBytes,
   formatDay,
   formatTime,
+  decodeMentions,
+  encodeMentions,
   memberColor,
   memberName,
+  mentionCandidates,
+  mentionRoleName,
+  mentionUserName,
+  mentionsMe,
+  mentionsToText,
   sameDay,
+  splitMentions,
   typingUsers,
 } from '@nexus/shared';
 import { QUICK_REACTIONS } from '@nexus/ui';
@@ -199,6 +207,36 @@ function DaySeparator({ at }: { at: number }) {
   );
 }
 
+/** Message text with mentions as highlighted "@Name" spans. */
+function MentionText({ conversationId, text }: { conversationId: Id; text: string }) {
+  const parts = useMemo(() => (text.includes('@') ? splitMentions(text) : null), [text]);
+  const labels = useNexus((s) => {
+    if (!parts) return '';
+    const sid = s.conversations[conversationId]?.server_id;
+    return parts
+      .map((p) =>
+        p.type === 'user' ? mentionUserName(s, sid, p.id) : p.type === 'role' ? mentionRoleName(s, sid, p.id) : p.type === 'everyone' ? p.word : '',
+      )
+      .join(' ');
+  });
+  if (!parts) return <>{text}</>;
+  const names = labels.split(' ');
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.type === 'text' ? (
+          p.text
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: parts never reorder
+          <Text key={i} style={styles.mention}>
+            @{names[i]}
+          </Text>
+        ),
+      )}
+    </>
+  );
+}
+
 const MessageRow = memo(function MessageRow({
   message: m,
   compact,
@@ -221,6 +259,10 @@ const MessageRow = memo(function MessageRow({
     return sv ? memberColor(sv, m.author_id) : undefined;
   });
   const replyAuthor = useNexus((s) => (m.reply_to ? s.users[m.reply_to.author_id]?.display_name : undefined));
+  const replyText = useNexus((s) =>
+    m.reply_to ? mentionsToText(s, s.conversations[m.conversation_id]?.server_id, m.reply_to.content) : '',
+  );
+  const pingsMe = useNexus((s) => mentionsMe(s, m));
   const blocked = useNexus((s) => !!s.blocked[m.author_id]);
   if (blocked) return <Text style={[common.faint, { paddingHorizontal: space.md, paddingVertical: 4 }]}>Mensagem de usuário bloqueado</Text>;
   return (
@@ -228,14 +270,14 @@ const MessageRow = memo(function MessageRow({
       onLongPress={onLongPress}
       delayLongPress={280}
       android_ripple={{ color: colors.surfaceHover }}
-      style={[styles.message, compact && { paddingTop: 1 }, m.local === 'sending' && { opacity: 0.65 }]}
+      style={[styles.message, compact && { paddingTop: 1 }, m.local === 'sending' && { opacity: 0.65 }, pingsMe && styles.mentioned]}
     >
       {m.reply_to && (
         <View style={styles.replyRow}>
           <View style={styles.replyCurve} />
           <Text style={styles.replyText} numberOfLines={1}>
             <Text style={{ fontWeight: '700', color: colors.textMuted }}>{replyAuthor ?? '?'} </Text>
-            {m.reply_to.content || 'Anexo'}
+            {replyText || 'Anexo'}
           </Text>
         </View>
       )}
@@ -252,7 +294,7 @@ const MessageRow = memo(function MessageRow({
           )}
           {!!m.content && (
             <Text style={[styles.content, m.local === 'failed' && { color: colors.danger }]} selectable={false}>
-              {m.content}
+              <MentionText conversationId={m.conversation_id} text={m.content} />
               {m.edited_at ? <Text style={styles.time}> (editada)</Text> : null}
             </Text>
           )}
@@ -432,13 +474,17 @@ function Composer({
   const [lastEditing, setLastEditing] = useState<string | null>(null);
   const [recording, setRecording] = useState<number | null>(null);
   const replyName = useNexus((s) => (replyTo ? (s.users[replyTo.author_id]?.display_name ?? '') : ''));
+  const replyText = useNexus((s) =>
+    replyTo ? mentionsToText(s, s.conversations[conversationId]?.server_id, replyTo.content) : '',
+  );
   if (editing && editing.id !== lastEditing) {
     setLastEditing(editing.id);
-    setText(editing.content);
+    setText(decodeMentions(client().store.getState(), conversationId, editing.content));
   }
 
   async function send() {
-    const content = text.trim();
+    // "@Name" / "@username" typed in the box become mentions.
+    const content = encodeMentions(text.trim(), mentionCandidates(client().store.getState(), conversationId));
     setError(null);
     try {
       if (editing) {
@@ -531,7 +577,7 @@ function Composer({
         <View style={styles.contextBar}>
           <Icon name={editing ? 'edit' : 'reply'} size={14} color={colors.accent} />
           <Text style={[common.muted, { flex: 1 }]} numberOfLines={1}>
-            {editing ? 'Editando mensagem' : `Respondendo a ${replyName}: ${replyTo?.content || 'Anexo'}`}
+            {editing ? 'Editando mensagem' : `Respondendo a ${replyName}: ${replyText || 'Anexo'}`}
           </Text>
           <IconButton
             name="x"
@@ -645,7 +691,11 @@ function Actions({
       {!message.local && <SheetItem icon="reply" label="Responder" onPress={act(onReply)} />}
       {mine && !message.local && !!message.content && <SheetItem icon="edit" label="Editar mensagem" onPress={act(onEdit)} />}
       {!!message.content && (
-        <SheetItem icon="copy" label="Copiar texto" onPress={act(() => NexusNative.copyText(message.content))} />
+        <SheetItem icon="copy" label="Copiar texto" onPress={act(() =>
+            NexusNative.copyText(
+              mentionsToText(client().store.getState(), client().store.getState().conversations[message.conversation_id]?.server_id, message.content),
+            ),
+          )} />
       )}
       {message.local === 'failed' && (
         <SheetItem icon="x" label="Descartar" onPress={act(() => client().discardFailed(message.conversation_id, message.id))} />
@@ -717,6 +767,8 @@ const styles = StyleSheet.create({
   author: { color: colors.text, fontWeight: '700', fontSize: 15, flexShrink: 1 },
   time: { color: colors.textFaint, fontSize: 11 },
   content: { color: colors.text, fontSize: 15, lineHeight: 21 },
+  mention: { color: '#c9d0ff', backgroundColor: 'rgba(84, 104, 245, 0.28)', fontWeight: '600' },
+  mentioned: { backgroundColor: 'rgba(245, 176, 65, 0.08)', borderLeftWidth: 2, borderLeftColor: colors.idle },
   image: { borderRadius: radius.md, backgroundColor: colors.surfaceRaised },
   video: { borderRadius: radius.md, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   videoPlay: { width: 60, height: 60, borderRadius: 30, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', paddingLeft: 3, elevation: 4 },

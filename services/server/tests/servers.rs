@@ -486,3 +486,137 @@ async fn moving_members_between_voice_channels() {
     let (status, _) = owner.post(&path, move_to(&lobby)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 }
+
+/// Unread mention count of a channel as `user` sees it.
+async fn mention_count(user: &TestUser, server_id: &str, name: &str) -> (Value, Value) {
+    let (_, view) = user.get(&format!("/api/servers/{server_id}")).await;
+    let c = channel(&view, name);
+    (c["unread_count"].clone(), c["mention_count"].clone())
+}
+
+#[tokio::test]
+async fn mentions_count_like_discord() {
+    let s = TestServer::start().await;
+    let owner = s.register("dono").await;
+    let guest = s.register("convidado").await;
+    let other = s.register("outro").await;
+    let view = create_server(&owner, "Clube").await;
+    let sid = view["id"].as_str().unwrap();
+    let geral = channel(&view, "geral")["id"].as_str().unwrap().to_string();
+    join(&owner, sid, &guest).await;
+    join(&owner, sid, &other).await;
+    let mod_role = create_role(&owner, sid, "Mod", 0).await;
+    assert_eq!(
+        set_roles(&owner, sid, &other.id, &[&mod_role]).await,
+        StatusCode::NO_CONTENT
+    );
+    let send = |content: String| {
+        let guest = &guest;
+        let geral = &geral;
+        async move {
+            let (status, msg) = guest
+                .post(
+                    &format!("/api/conversations/{geral}/messages"),
+                    json!({ "content": content }),
+                )
+                .await;
+            assert_eq!(status, StatusCode::CREATED, "{msg}");
+            msg
+        }
+    };
+
+    // A plain message is unread but not a mention.
+    send("oi".into()).await;
+    assert_eq!(mention_count(&owner, sid, "geral").await, (json!(1), json!(0)));
+
+    // Direct mention; ids of non-members and code are ignored.
+    let msg = send(format!(
+        "oi <@{}> `<@{}>` <@0190a0b0-0000-7000-8000-00000000ffff>",
+        owner.id, other.id
+    ))
+    .await;
+    assert_eq!(msg["mentions"], json!([owner.id]));
+    assert_eq!(msg["mention_everyone"], false);
+    assert_eq!(mention_count(&owner, sid, "geral").await, (json!(2), json!(1)));
+    assert_eq!(mention_count(&other, sid, "geral").await.1, json!(0));
+
+    // Role mention reaches the role's members only.
+    let msg = send(format!("<@&{mod_role}> olhem isso")).await;
+    assert_eq!(msg["mention_roles"], json!([mod_role]));
+    assert_eq!(mention_count(&other, sid, "geral").await.1, json!(1));
+    assert_eq!(mention_count(&owner, sid, "geral").await.1, json!(1));
+
+    // @here: only who is online now (owner), not `other`.
+    let (_gw, _) = Gateway::connect(&s, &owner.token).await;
+    let msg = send("@here reunião".into()).await;
+    assert_eq!(msg["mention_everyone"], true);
+    assert_eq!(mention_count(&owner, sid, "geral").await.1, json!(2));
+    assert_eq!(mention_count(&other, sid, "geral").await.1, json!(1));
+
+    // @everyone: everybody.
+    send("@everyone aviso".into()).await;
+    assert_eq!(mention_count(&owner, sid, "geral").await.1, json!(3));
+    assert_eq!(mention_count(&other, sid, "geral").await.1, json!(2));
+
+    // Without MENTION_EVERYONE the text does nothing.
+    let base = p::DEFAULT_EVERYONE & !p::MENTION_EVERYONE;
+    let (status, _) = owner
+        .patch(
+            &format!("/api/servers/{sid}/roles/{sid}"),
+            json!({ "permissions": base }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let msg = send("@everyone de novo".into()).await;
+    assert_eq!(msg["mention_everyone"], false);
+    assert_eq!(mention_count(&other, sid, "geral").await.1, json!(2));
+
+    // Editing the mention away removes it.
+    let msg = send(format!("<@{}>", other.id)).await;
+    assert_eq!(mention_count(&other, sid, "geral").await.1, json!(3));
+    let mid = msg["id"].as_str().unwrap();
+    let (status, edited) = guest
+        .patch(
+            &format!("/api/conversations/{geral}/messages/{mid}"),
+            json!({ "content": "deixa pra lá" }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{edited}");
+    assert_eq!(edited["mentions"], json!([]));
+    assert_eq!(mention_count(&other, sid, "geral").await.1, json!(2));
+
+    // A reply pings the replied-to author.
+    let (_, own) = owner
+        .post(
+            &format!("/api/conversations/{geral}/messages"),
+            json!({ "content": "minha" }),
+        )
+        .await;
+    let (status, reply) = other
+        .post(
+            &format!("/api/conversations/{geral}/messages"),
+            json!({ "content": "resposta", "reply_to_id": own["id"] }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{reply}");
+    assert_eq!(reply["mentions"], json!([owner.id]));
+    // The owner's own message marked the channel read: only the reply is left.
+    assert_eq!(mention_count(&owner, sid, "geral").await, (json!(1), json!(1)));
+}
+
+#[tokio::test]
+async fn dm_messages_count_as_mentions() {
+    let s = TestServer::start().await;
+    let a = s.register("ana").await;
+    let b = s.register("bia").await;
+    let dm = s.dm(&a, &b).await;
+    for text in ["oi", "tudo bem?"] {
+        let (status, _) = a
+            .post(&format!("/api/conversations/{dm}/messages"), json!({ "content": text }))
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+    let (_, conv) = b.get(&format!("/api/conversations/{dm}")).await;
+    assert_eq!(conv["unread_count"], 2);
+    assert_eq!(conv["mention_count"], 2);
+}

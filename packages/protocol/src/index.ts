@@ -105,6 +105,11 @@ export interface ConversationView extends Conversation {
   last_read_message_id: Id | null;
   /** Capped at 100 by the server. */
   unread_count: number;
+  /**
+   * The red badge: unread mentions in server channels, every unread message
+   * in DMs and groups. Capped at 100.
+   */
+  mention_count: number;
   /** Server channels: the viewer's effective permissions (see `Permissions`). */
   permissions?: number;
 }
@@ -137,9 +142,11 @@ export const Permissions = {
   MOVE_MEMBERS: 1 << 17,
   /** Request attended control; the sharer must still consent each time. */
   REQUEST_CONTROL: 1 << 18,
+  /** @everyone and @here notify people (without it they are plain text). */
+  MENTION_EVERYONE: 1 << 19,
 } as const;
 export type PermissionName = keyof typeof Permissions;
-export const ALL_PERMISSIONS = (1 << 19) - 1;
+export const ALL_PERMISSIONS = (1 << 20) - 1;
 /** Permissions that can be overridden per channel/category. */
 export const CHANNEL_PERMISSIONS =
   Permissions.VIEW_CHANNEL |
@@ -150,7 +157,8 @@ export const CHANNEL_PERMISSIONS =
   Permissions.CONNECT |
   Permissions.SPEAK |
   Permissions.VIDEO |
-  Permissions.REQUEST_CONTROL;
+  Permissions.REQUEST_CONTROL |
+  Permissions.MENTION_EVERYONE;
 
 export const hasPermission = (perms: number | undefined, p: number): boolean => ((perms ?? 0) & p) === p;
 
@@ -260,6 +268,12 @@ export interface Message {
   reply_to: ReplyPreview | null;
   attachments: Attachment[];
   reactions: Reaction[];
+  /** Mentioned user ids (`<@id>` in the text). */
+  mentions: Id[];
+  /** Mentioned role ids (`<@&id>`). */
+  mention_roles: Id[];
+  /** @everyone or @here, when the author was allowed to. */
+  mention_everyone: boolean;
   created_at: Timestamp;
   edited_at: Timestamp | null;
   /** Only on MESSAGE_CREATE sent back to the author's devices. */

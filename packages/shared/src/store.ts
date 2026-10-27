@@ -17,6 +17,7 @@ import type {
 import { isChannel } from "@nexus/protocol";
 import { createStore } from "zustand/vanilla";
 import type { GatewayState } from "./gateway";
+import { badgeCount, mentionsMe } from "./mentions";
 
 /** Message as held by the client; `local` marks optimistic sends. */
 export type ClientMessage = Message & {
@@ -271,12 +272,15 @@ export function applyFrame(s: NexusState, frame: GatewayFrame, now = Date.now())
       }
       if (conv) {
         const fromOther = isFromOther(s, m);
+        // DMs and groups: every message counts as a mention.
+        const pings = fromOther && (!isChannel(conv) || mentionsMe(s, m));
         out.conversations = {
           ...s.conversations,
           [conv.id]: {
             ...conv,
             last_message_id: m.id,
             unread_count: fromOther ? Math.min(conv.unread_count + 1, 100) : 0,
+            mention_count: !fromOther ? 0 : pings ? Math.min(badgeCount(conv) + 1, 100) : badgeCount(conv),
             last_read_message_id: fromOther ? conv.last_read_message_id : m.id,
           },
         };
@@ -337,6 +341,7 @@ export function applyFrame(s: NexusState, frame: GatewayFrame, now = Date.now())
             ...conv,
             last_read_message_id: frame.d.message_id,
             unread_count: caughtUp ? 0 : conv.unread_count,
+            mention_count: caughtUp ? 0 : badgeCount(conv),
           },
         },
       };
@@ -562,9 +567,18 @@ export function typingUsers(s: NexusState, conversationId: Id, now = Date.now())
     .map(([uid]) => uid);
 }
 
-/** Unread in DMs and groups (taskbar badge; channels only show a dot). */
+/** Unread in DMs and groups (badge on the Home icon). */
 export function totalUnread(s: NexusState): number {
-  return Object.values(s.conversations).reduce((n, c) => (isChannel(c) ? n : n + c.unread_count), 0);
+  return Object.values(s.conversations).reduce((n, c) => (isChannel(c) ? n : n + badgeCount(c)), 0);
+}
+
+/**
+ * The app icon badge (taskbar): unread DM/group messages, mentions in server
+ * channels and pending friend requests, as Discord counts it.
+ */
+export function totalBadge(s: NexusState): number {
+  const mentions = Object.values(s.conversations).reduce((n, c) => n + badgeCount(c), 0);
+  return mentions + s.incoming.length;
 }
 
 // ---- servers ----
@@ -595,6 +609,11 @@ export function serverChannels(s: Pick<NexusState, "servers" | "conversations">,
 /** Server has unread text channels (for the dot on its icon). */
 export function serverHasUnread(s: NexusState, serverId: Id): boolean {
   return Object.values(s.conversations).some((c) => c.server_id === serverId && c.unread_count > 0);
+}
+
+/** Unread mentions across a server's channels (red badge on its icon). */
+export function serverMentions(s: NexusState, serverId: Id): number {
+  return Object.values(s.conversations).reduce((n, c) => (c.server_id === serverId ? n + badgeCount(c) : n), 0);
 }
 
 export function serverMember(server: ServerView, userId: Id): ServerMember | undefined {

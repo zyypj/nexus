@@ -1,5 +1,5 @@
 import { type ConversationView, type Id, Permissions, hasPermission } from "@nexus/protocol";
-import { type ChannelGroup, callForConversation, memberColor, memberName, serverChannels } from "@nexus/shared";
+import { type ChannelGroup, badgeCount, callForConversation, memberColor, memberName, serverChannels } from "@nexus/shared";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { calls, useCall } from "../call/callStore";
 import { Avatar } from "../components/Avatar";
@@ -224,7 +224,9 @@ const TextChannel = memo(function TextChannel({
   canManage: boolean;
   onEdit: (id: Id) => void;
 }) {
+  // Discord style: unread = white name + white dot; only mentions get the red count.
   const unread = channel.unread_count;
+  const mentions = badgeCount(channel);
   const locked = !hasPermission(channel.permissions, Permissions.SEND_MESSAGES);
   const drop = useChannelDrop(channel, canManage);
   return (
@@ -245,7 +247,7 @@ const TextChannel = memo(function TextChannel({
       >
         <Icon name={locked ? "lock" : "hash"} size={18} className="channel-icon" />
         <span className="channel-name">{channel.name}</span>
-        {unread > 0 && !active && <span className="badge small">{unread >= 100 ? "99+" : unread}</span>}
+        {mentions > 0 && !active && <span className="badge small">{mentions >= 100 ? "99+" : mentions}</span>}
       </button>
       {canManage && (
         <button type="button" className="icon-btn tiny channel-edit" title="Editar canal" onClick={() => onEdit(channel.id)}>

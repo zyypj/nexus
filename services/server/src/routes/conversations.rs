@@ -125,15 +125,23 @@ pub async fn channel_view(
     // Text channels count unread; voice channels have no chat. Joining a
     // server seeds the read markers (see servers::seed_reads), so a new member
     // does not start with every old message unread.
-    let unread_count = if channel.kind == ConversationKind::Text {
-        unread_count(db, &channel.id, viewer, last_read.as_deref()).await?
-    } else {
-        0
+    let (unread_count, mention_count) = match (&channel.kind, &channel.server_id) {
+        (ConversationKind::Text, Some(server_id)) => {
+            let unread = unread_count(db, &channel.id, viewer, last_read.as_deref()).await?;
+            let mentions = if unread > 0 {
+                mention_count(db, &channel.id, server_id, viewer, last_read.as_deref()).await?
+            } else {
+                0
+            };
+            (unread, mentions)
+        }
+        _ => (0, 0),
     };
     Ok(ConversationView {
         conversation: channel,
         last_read_message_id: last_read,
         unread_count,
+        mention_count,
         permissions: Some(permissions),
     })
 }
@@ -187,6 +195,8 @@ pub async fn conversation_view(db: &Db, id: &str, viewer: &str) -> ApiResult<Con
         conversation,
         last_read_message_id: last_read,
         unread_count,
+        // Every DM/group message counts as a mention.
+        mention_count: unread_count,
         permissions: None,
     })
 }
@@ -200,6 +210,34 @@ pub async fn unread_count(db: &Db, conversation_id: &str, viewer: &str, last_rea
     .bind(conversation_id)
     .bind(viewer)
     .bind(last_read.unwrap_or(""))
+    .fetch_one(db)
+    .await?;
+    Ok(n)
+}
+
+/// Unread messages in a server channel that mention `viewer`: directly, one
+/// of their roles, @everyone, or @here while they were online. Capped at 100.
+pub async fn mention_count(
+    db: &Db,
+    channel_id: &str,
+    server_id: &str,
+    viewer: &str,
+    last_read: Option<&str>,
+) -> ApiResult<i64> {
+    let (n,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM (SELECT 1 FROM messages m
+         WHERE m.conversation_id = ?1 AND m.author_id != ?2 AND m.id > ?3
+           AND (m.mention_everyone = 1 OR EXISTS (
+             SELECT 1 FROM message_mentions x WHERE x.message_id = m.id AND (
+               (x.kind IN ('user', 'here') AND x.target_id = ?2)
+               OR (x.kind = 'role' AND x.target_id IN
+                   (SELECT role_id FROM member_roles WHERE server_id = ?4 AND user_id = ?2)))))
+         LIMIT 100)",
+    )
+    .bind(channel_id)
+    .bind(viewer)
+    .bind(last_read.unwrap_or(""))
+    .bind(server_id)
     .fetch_one(db)
     .await?;
     Ok(n)

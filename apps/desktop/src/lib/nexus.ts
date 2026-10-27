@@ -1,4 +1,4 @@
-import { NexusClient, type NexusState, conversationTitle } from "@nexus/shared";
+import { NexusClient, type NexusState, conversationTitle, memberName, mentionsToText } from "@nexus/shared";
 import { useStore } from "zustand";
 import { create } from "zustand";
 import { calls, useCall } from "../call/callStore";
@@ -66,10 +66,16 @@ export function createClient(serverUrl: string): NexusClient {
     onNotify: (m, s) => {
       playSound("message");
       if (!settings().notifications) return;
-      const author = s.users[m.author_id]?.display_name ?? "Nova mensagem";
       const conv = s.conversations[m.conversation_id];
-      const title = conv && conv.kind === "group" ? `${author} em ${conversationTitle(s, conv)}` : author;
-      const body = m.content || (m.attachments.length ? "📎 Anexo" : "");
+      const server = conv?.server_id ? s.servers[conv.server_id] : undefined;
+      const author = server ? memberName(s, server, m.author_id) : (s.users[m.author_id]?.display_name ?? "Nova mensagem");
+      // Server channels only notify mentions: "Ana (#geral, Clube)".
+      const title = server
+        ? `${author} (#${conv?.name ?? ""}, ${server.name})`
+        : conv && conv.kind === "group"
+          ? `${author} em ${conversationTitle(s, conv)}`
+          : author;
+      const body = mentionsToText(s, conv?.server_id, m.content) || (m.attachments.length ? "📎 Anexo" : "");
       void notify(title, body.slice(0, 140), m.conversation_id);
     },
   });
