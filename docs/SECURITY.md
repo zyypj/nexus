@@ -23,6 +23,11 @@ como, e onde está testado.
 
 ## Autorização
 
+- **Controle remoto assistido**: consentimento por pessoa/dispositivo, permissão de cargo/canal
+  para solicitar, restrições nativas de janela/área/ação e prioridade local. Não é sandbox:
+  operações perigosas dentro do aplicativo autorizado continuam possíveis. Testes entre dois
+  PCs e revisão de segurança independente ainda pendentes. Ver [REMOTE_CONTROL.md](REMOTE_CONTROL.md).
+
 - Conversas/mensagens/anexos/calls: quem não é membro recebe **404** (não descobre que existe).
   Teste: `messaging.rs::non_members_cannot_see_conversations`.
 - DMs só entre amigos; bloqueio congela a DM (mensagens, reações, calls, pedidos de amizade).
@@ -76,6 +81,10 @@ query string, que contém assinaturas de URL), e tokens nunca aparecem em URLs.
 - Permissões de mídia concedidas só ao conteúdo empacotado do app.
 
 ## Transporte
+
+- Controle remoto exige HTTPS fora de localhost, mesmo quando a instalação usa HTTP para
+  chat/chamadas. Com proxy TLS, isole a porta HTTP de origem; configurar a URL pública não
+  verifica o transporte real da requisição.
 
 - Mídia WebRTC é sempre criptografada (DTLS-SRTP).
 - API: use HTTPS. Sem proxy reverso, o servidor pode terminar TLS sozinho

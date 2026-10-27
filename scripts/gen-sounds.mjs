@@ -233,6 +233,21 @@ const SOUNDS = {
     swoosh(x, 0, 0.3, 2600, 350, { gain: 0.1, seed: 11 });
     [A5, E5, A4].forEach((f, i) => tone(x, i * 0.065, f, with_(MALLET, { gain: 0.9, decay: 0.16 })));
   }, { bright: 5000 }],
+  // Someone else went live (screen share or camera): two light wooden notes
+  // rising, with a faint shimmer. Softer than your own screen_start.
+  stream_start: [0.55, (x) => {
+    swoosh(x, 0, 0.2, 900, 3200, { gain: 0.05, seed: 23 });
+    tone(x, 0.03, Cs5, with_(MALLET, { gain: 0.7, decay: 0.14 }));
+    tone(x, 0.1, A5, with_(MALLET, { gain: 0.85, decay: 0.18 }));
+  }, { level: -18 }],
+  // Someone asks to control your screen: a "knock-knock" of two rising pairs
+  // of bloops, meant to be noticed while you are in another window.
+  control_request: [0.8, (x) => {
+    for (const [t, g] of [[0, 0.8], [0.3, 1]]) {
+      tone(x, t, E5, with_(BLOOP, { gain: 0.75 * g, decay: 0.07 }));
+      tone(x, t + 0.1, A5, with_(BLOOP, { gain: g, decay: 0.09 }));
+    }
+  }, { level: -14 }],
   // A single water-drop "bloop" with a wide upward scoop.
   message: [0.45, (x) => tone(x, 0, Gs5, with_(BLOOP, { decay: 0.085, glide: 0.62, glideTime: 0.02, fm: 0.8, partials: [[0.5, 0.2, 0.07], [2, 0.06, 0.02]] }))],
   // Loops. Incoming: a calm marimba phrase over a soft I-IV bass, then a rest.

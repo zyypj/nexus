@@ -5,6 +5,42 @@ export type Id = string;
 /** Unix milliseconds. */
 export type Timestamp = number;
 
+export interface ControlCapabilities {
+  pointer: boolean;
+  click: boolean;
+  scroll: boolean;
+  /** Printable text only, no shortcuts, clipboard, Enter or held keys. */
+  text: boolean;
+}
+export interface ControlShare {
+  owner_id: Id;
+  request_id: Id | null;
+  controller_id: Id | null;
+  accepted: boolean;
+  expires_at: Timestamp;
+  permissions: ControlCapabilities;
+}
+export interface ControlStatus { can_request: boolean; shares: ControlShare[] }
+export type ControlInput =
+  | { kind: "move"; x: number; y: number }
+  | { kind: "click"; x: number; y: number; button: number }
+  | { kind: "scroll"; x: number; y: number; delta: number }
+  | { kind: "text"; text: string };
+export interface RemoteControlPacket {
+  call_id: Id;
+  request_id: Id;
+  sequence: number;
+  epoch: number;
+  input: ControlInput;
+}
+export type ControlCommand =
+  | { action: "offer"; enabled: boolean }
+  | { action: "request"; owner_id: Id }
+  | { action: "respond"; request_id: Id; accept: boolean; permissions: ControlCapabilities }
+  | { action: "heartbeat"; epoch: number }
+  | { action: "stop" }
+  | { action: "input"; request_id: Id; sequence: number; input: ControlInput };
+
 export interface PublicUser {
   id: Id;
   username: string;
@@ -99,9 +135,11 @@ export const Permissions = {
   MANAGE_NICKNAMES: 1 << 16,
   /** Move other members between voice channels. */
   MOVE_MEMBERS: 1 << 17,
+  /** Request attended control; the sharer must still consent each time. */
+  REQUEST_CONTROL: 1 << 18,
 } as const;
 export type PermissionName = keyof typeof Permissions;
-export const ALL_PERMISSIONS = (1 << 18) - 1;
+export const ALL_PERMISSIONS = (1 << 19) - 1;
 /** Permissions that can be overridden per channel/category. */
 export const CHANNEL_PERMISSIONS =
   Permissions.VIEW_CHANNEL |
@@ -111,7 +149,8 @@ export const CHANNEL_PERMISSIONS =
   Permissions.MANAGE_MESSAGES |
   Permissions.CONNECT |
   Permissions.SPEAK |
-  Permissions.VIDEO;
+  Permissions.VIDEO |
+  Permissions.REQUEST_CONTROL;
 
 export const hasPermission = (perms: number | undefined, p: number): boolean => ((perms ?? 0) & p) === p;
 
@@ -315,6 +354,9 @@ export interface ApiErrorBody {
 
 /** Dispatch events: name -> payload. */
 export interface GatewayEvents {
+  REMOTE_CONTROL_INPUT: RemoteControlPacket;
+  /** The call's control state changed: fetch `GET /calls/{id}/remote-control` again. */
+  REMOTE_CONTROL_UPDATE: { call_id: Id };
   HELLO: { heartbeat_interval_ms: number };
   READY: Ready;
   HEARTBEAT_ACK: Record<string, never>;

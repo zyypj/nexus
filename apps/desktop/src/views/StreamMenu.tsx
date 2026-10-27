@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { calls, useCall } from "../call/callStore";
+import { stopRemoteControl, useRemoteControl } from "../call/remoteControl";
 import { PRESETS } from "../call/screenQuality";
 import { type AudioApp, type AudioAppGroup, groupAudioApps, listAudioApps, systemAudioSupport } from "../call/systemAudio";
 import type { MenuEntry } from "../components/ContextMenu";
@@ -19,7 +20,15 @@ const QUALITIES: { id: ScreenQuality; label: string }[] = [
 export function streamMenu(): MenuEntry[] {
   const settings = useCall.getState().screenSettings;
   if (!settings) return [];
+  const control = useRemoteControl.getState();
   return [
+    {
+      label: control.offered ? "Encerrar controle e solicitações" : "Liberar solicitações de controle…",
+      icon: "screen",
+      danger: control.offered,
+      disabled: !control.sourceId?.startsWith("window:"),
+      run: () => control.offered ? stopRemoteControl() : useRemoteControl.setState({ dialog: true }),
+    },
     {
       label: "Qualidade",
       icon: "settings",

@@ -8,6 +8,7 @@ import { startUpdateChecks, startupUpdate } from "./lib/updater";
 import { AppShell } from "./views/AppShell";
 import { LoginView } from "./views/LoginView";
 import { UpdateGate } from "./views/UpdateGate";
+import { RemoteControlCenter } from "./views/RemoteControl";
 
 let restoreStarted = false;
 
@@ -67,6 +68,7 @@ export function App() {
   return (
     <>
       <CallLifecycle />
+      <RemoteControlCenter />
       <UnreadBadge />
       <AppShell />
     </>

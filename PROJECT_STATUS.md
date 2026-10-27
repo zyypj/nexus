@@ -1,8 +1,23 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-26 (versão 0.3.0; correções das chamadas ainda não lançadas).
+Última atualização: 2026-10-27 (versão 0.3.0; correções das chamadas e controle assistido ainda não lançados).
 
 ## Fase atual
+
+Controle remoto assistido no Windows: consentimento por pessoa, permissões de cargo/canal,
+limites por janela/área/ação, prioridade local de três segundos e barra nativa de emergência
+implementados. Typecheck, testes automatizados, clippy, build web e revisão visual do diálogo
+passaram. **Ainda não validado com dois PCs Windows; não considerar pronto para produção.**
+Fluxo, limites de segurança e roteiro manual em [REMOTE_CONTROL.md](docs/REMOTE_CONTROL.md).
+Revisão (2026-10-27): estado avisado pelo gateway em vez de consultas a cada 500 ms de todos na
+call; autorização dos comandos em cache (1,5 s, invalidada por mudança de cargos); janela de
+épocas que não perde cliques a cada heartbeat; checagem completa do processo no máximo 1×/s;
+`GetLastInputInfo` comparado com tolerância; só clique esquerdo (menus são bloqueados); último
+movimento do ponteiro não se perde; listener preso ao client atual; som + notificação no pedido.
+
+Sons novos (Windows): `stream_start` quando outra pessoa começa a transmitir ou liga a câmera
+(não toca para o que já estava ao vivo ao entrar, nem junto com quem acabou de entrar) e
+`control_request` quando alguém pede controle da sua janela. Gerados por `scripts/gen-sounds.mjs`.
 
 Todas as fases têm código. Windows (1–9) testado na prática; **Android (10–12) implementado e
 compilando (APK debug e release gerados), mas ainda não executado num aparelho/emulador**.

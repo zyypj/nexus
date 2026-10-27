@@ -10,6 +10,10 @@ export type Sound =
   | "undeafen"
   | "screen_start"
   | "screen_stop"
+  /** Someone else started a screen share or turned their camera on. */
+  | "stream_start"
+  /** Someone asks to control your shared window. */
+  | "control_request"
   | "message"
   | "ring"
   | "calling";

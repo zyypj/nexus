@@ -231,6 +231,9 @@ pub async fn servers_for_user(db: &Db, user_id: &str) -> ApiResult<Vec<ServerVie
 
 /// Sends every member their own view of the server.
 pub async fn broadcast_server(state: &AppState, server_id: &str) -> ApiResult<()> {
+    // Roles, overwrites or members may have changed: remote control inputs
+    // go through the full permission check again.
+    super::remote_control::invalidate(state);
     let snap = Snapshot::load(&state.db, server_id).await?;
     for user_id in snap.member_roles.keys() {
         if !state.hub.is_online(user_id) {

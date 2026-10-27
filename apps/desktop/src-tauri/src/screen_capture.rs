@@ -92,6 +92,8 @@ pub async fn capture_start(
 ) -> Result<(), String> {
     #[cfg(windows)]
     {
+        crate::remote_control::capture_source(None);
+        let active_source = source_id.clone();
         let old = state.0.lock().map_err(|e| e.to_string())?.take();
         if let Some(old) = old {
             old.stop();
@@ -102,6 +104,7 @@ pub async fn capture_start(
         .await
         .map_err(|e| e.to_string())??;
         *state.0.lock().map_err(|e| e.to_string())? = Some(running);
+        crate::remote_control::capture_source(Some(active_source));
         Ok(())
     }
     #[cfg(not(windows))]
@@ -118,6 +121,7 @@ pub fn capture_configure(state: State<'_, CaptureState>, target: CaptureTarget) 
 
 #[tauri::command]
 pub fn capture_stop(state: State<'_, CaptureState>) -> Result<(), String> {
+    crate::remote_control::capture_source(None);
     if let Some(r) = state.0.lock().map_err(|e| e.to_string())?.take() {
         r.stop();
     }
@@ -565,6 +569,7 @@ mod imp {
             let p = Arc::clone(&pipeline);
             item.Closed(&TypedEventHandler::<GraphicsCaptureItem, IInspectable>::new(
                 move |_, _| {
+                    crate::remote_control::capture_source(None);
                     if let Ok(p) = p.lock() {
                         (p.sink)(CaptureEvent::Closed);
                     }

@@ -11,6 +11,7 @@ pub struct AppState {
     pub storage: Storage,
     /// Outbound HTTP (LiveKit RoomService).
     pub http: reqwest::Client,
+    pub controls: Arc<crate::routes::remote_control::Controls>,
 }
 
 impl AppState {
@@ -23,6 +24,7 @@ impl AppState {
             db,
             hub: Arc::new(Hub::new()),
             storage,
+            controls: Arc::new(Default::default()),
             http: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
                 .build()?,

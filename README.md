@@ -78,6 +78,7 @@ CI: `.github/workflows/ci.yml` (servidor, TypeScript, app Windows, APK Android) 
 
 [Arquitetura](docs/ARCHITECTURE.md) · [Windows](docs/WINDOWS.md) · [Android](docs/ANDROID.md) ·
 [Áudio](docs/AUDIO.md) · [Compartilhamento de tela](docs/SCREEN_SHARE.md) ·
+[Controle remoto assistido](docs/REMOTE_CONTROL.md) ·
 [LiveKit](docs/LIVEKIT.md) · [Pterodactyl](docs/PTERODACTYL.md) ·
 [Benchmarks](docs/BENCHMARKS.md) · [Segurança](docs/SECURITY.md) · [Atualizações](docs/UPDATES.md) ·
 [Servidores](docs/SERVERS.md) ·

@@ -39,7 +39,9 @@ pub const MANAGE_NICKNAMES: i64 = 1 << 16;
 /// Move other members between voice channels.
 pub const MOVE_MEMBERS: i64 = 1 << 17;
 
-pub const ALL: i64 = (1 << 18) - 1;
+pub const REQUEST_CONTROL: i64 = 1 << 18;
+
+pub const ALL: i64 = (1 << 19) - 1;
 
 /// What everyone can do in a new server.
 pub const DEFAULT_EVERYONE: i64 = VIEW_CHANNEL
@@ -53,8 +55,15 @@ pub const DEFAULT_EVERYONE: i64 = VIEW_CHANNEL
     | CHANGE_NICKNAME;
 
 /// Permissions that only make sense per channel (allowed in overwrites).
-pub const CHANNEL_SCOPED: i64 =
-    VIEW_CHANNEL | SEND_MESSAGES | ATTACH_FILES | ADD_REACTIONS | MANAGE_MESSAGES | CONNECT | SPEAK | VIDEO;
+pub const CHANNEL_SCOPED: i64 = VIEW_CHANNEL
+    | SEND_MESSAGES
+    | ATTACH_FILES
+    | ADD_REACTIONS
+    | MANAGE_MESSAGES
+    | CONNECT
+    | SPEAK
+    | VIDEO
+    | REQUEST_CONTROL;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct RoleRow {

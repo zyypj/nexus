@@ -470,6 +470,7 @@ pub const DROPPED_CALL_GRACE: std::time::Duration = std::time::Duration::from_se
 /// Marks the participant as gone, broadcasts CALL_LEAVE and ends the call when
 /// it becomes empty (immediately or after a grace period, see [`Leave`]).
 pub async fn leave_internal(state: &AppState, call_id: &str, user_id: &str, how: Leave) -> ApiResult<bool> {
+    super::remote_control::revoke(state, call_id, Some(user_id));
     let res =
         sqlx::query("UPDATE call_participants SET left_at = ? WHERE call_id = ? AND user_id = ? AND left_at IS NULL")
             .bind(now_ms())
@@ -527,6 +528,7 @@ fn kick_from_room(state: &AppState, call_id: &str, room: &str, user_id: &str) {
 }
 
 pub async fn end_internal(state: &AppState, call_id: &str) -> ApiResult<()> {
+    super::remote_control::revoke(state, call_id, None);
     let now = now_ms();
     let res = sqlx::query("UPDATE calls SET ended_at = ? WHERE id = ? AND ended_at IS NULL")
         .bind(now)
@@ -631,6 +633,9 @@ pub async fn update_state(
         p.video = v;
     }
     if let Some(v) = body.screen {
+        if !v {
+            super::remote_control::revoke(&state, &call_id, Some(&user.id));
+        }
         p.screen = v;
     }
     sqlx::query(

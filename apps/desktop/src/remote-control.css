@@ -1,0 +1,42 @@
+.remote-banner {
+  position: fixed;
+  z-index: 70;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(760px, calc(100vw - 24px));
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 2px solid #f6a84c;
+  border-radius: 10px;
+  background: #27202b;
+  box-shadow: 0 6px 30px #0008;
+  color: #fff;
+}
+.remote-banner[role="alert"] { bottom: auto; top: 14px; border-color: #f57878; }
+.remote-banner > span { flex: 1; }
+.remote-banner button { flex-shrink: 0; max-width: 230px; white-space: normal; }
+.remote-dialog { display: grid; gap: 16px; }
+.remote-dialog p { margin: 4px 0; }
+.remote-warning { padding: 14px; background: #492b20; border: 1px solid #f6a84c; border-radius: 8px; color: #ffead5; }
+.remote-warning strong { display: block; margin-bottom: 10px; }
+.remote-warning p + p { margin-top: 10px; }
+.remote-dialog fieldset { display: grid; gap: 10px; border: 1px solid var(--c-border); border-radius: 8px; padding: 12px; }
+.remote-dialog label { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; }
+.remote-dialog input[type="checkbox"] { width: auto; flex-shrink: 0; margin-top: 4px; }
+.remote-area { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.remote-area label { display: grid; gap: 4px; }
+.remote-area input { width: 100%; padding: 8px; background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 6px; }
+.remote-actions { display: flex; justify-content: flex-end; gap: 12px; }
+.remote-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.remote-presets .btn { padding: 5px 8px; font-size: 12px; }
+.remote-area-preview { position: relative; width: 100%; height: 110px; border: 1px solid var(--c-border); border-radius: 5px; background: #0c0d15; overflow: hidden; }
+.remote-area-preview > div { position: absolute; display: grid; place-content: center; border: 2px solid #f6a84c; background: #f6a84c22; color: #ffe3bf; font-size: 12px; overflow: hidden; }
+.remote-surface { position: absolute; inset: 0; z-index: 3; cursor: crosshair; touch-action: none; }
+.remote-controller { position: absolute; z-index: 5; top: 8px; left: 8px; max-width: calc(100% - 110px); display: grid; gap: 6px; padding: 8px; background: #171522ef; border: 1px solid #f6a84c; border-radius: 8px; color: #fff; }
+.remote-controller form { display: flex; gap: 6px; }
+.remote-controller input { min-width: 0; width: 160px; background: #12101d; border: 1px solid #777; border-radius: 4px; padding: 6px; }
+.remote-controller small { max-width: 330px; }
+.tile:has(.remote-surface) .tile-actions { z-index: 6; }

@@ -66,6 +66,7 @@ export const PERMISSION_INFO: { key: keyof typeof Permissions; label: string; he
   { key: "MANAGE_MESSAGES", label: "Gerenciar mensagens", help: "Apagar mensagens de outras pessoas.", group: "Texto" },
   { key: "CONNECT", label: "Conectar", help: "Entrar nos canais de voz.", group: "Voz" },
   { key: "SPEAK", label: "Falar", help: "Sem isso a pessoa só escuta.", group: "Voz" },
+  { key: "REQUEST_CONTROL", label: "Solicitar controle remoto", help: "Pedir controle de uma janela compartilhada. Exige aceite explícito do dono a cada sessão.", group: "Voz" },
   { key: "VIDEO", label: "Vídeo e tela", help: "Câmera e compartilhamento de tela.", group: "Voz" },
   { key: "MOVE_MEMBERS", label: "Mover membros", help: "Levar quem está num canal de voz para outro.", group: "Voz" },
 ];

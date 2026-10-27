@@ -6,8 +6,9 @@
 //! - `RegisterHotKey` swallows the key, so a PTT key could not be used in-game;
 //! - mouse side buttons (very common PTT binds) are supported.
 //!
-//! The hooks never consume input (always `CallNextHookEx`). The callback only
-//! compares a handful of integers and forwards matches through a channel.
+//! Local input is always forwarded. Nexus remote-control input is checked by
+//! the native guard and may be consumed; it never operates hotkeys. No key
+//! contents are recorded. Hotkey matches are forwarded through a channel.
 //! Limitation: Windows does not deliver input from elevated (admin) windows
 //! to a non-elevated hook (UIPI).
 
@@ -174,7 +175,19 @@ mod imp {
     unsafe extern "system" fn keyboard_proc(n_code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         if n_code == HC_ACTION as i32 {
             let info = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
+            crate::remote_control::imp::observe_input();
             let msg = wparam.0 as u32;
+            if info.dwExtraInfo == crate::remote_control::imp::MARKER {
+                if msg != WM_KEYUP && msg != WM_SYSKEYUP && !crate::remote_control::imp::injected_allowed(None) {
+                    return LRESULT(1);
+                }
+                return unsafe { CallNextHookEx(None, n_code, wparam, lparam) };
+            }
+            crate::remote_control::imp::local_input(info.vkCode == 0x1B && (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN));
+            // Synthetic input must never operate Nexus hotkeys or its binding picker.
+            if info.flags.0 & 0x10 != 0 {
+                return unsafe { CallNextHookEx(None, n_code, wparam, lparam) };
+            }
             let down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
             let up = msg == WM_KEYUP || msg == WM_SYSKEYUP;
             if down || up {
@@ -187,6 +200,22 @@ mod imp {
     unsafe extern "system" fn mouse_proc(n_code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         if n_code == HC_ACTION as i32 {
             let msg = wparam.0 as u32;
+            let info = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
+            crate::remote_control::imp::observe_input();
+            if info.dwExtraInfo == crate::remote_control::imp::MARKER {
+                // Always release our paired buttons, including after a focus change.
+                if msg != windows::Win32::UI::WindowsAndMessaging::WM_LBUTTONUP
+                    && msg != windows::Win32::UI::WindowsAndMessaging::WM_RBUTTONUP
+                    && !crate::remote_control::imp::injected_allowed(Some(info.pt))
+                {
+                    return LRESULT(1);
+                }
+                return unsafe { CallNextHookEx(None, n_code, wparam, lparam) };
+            }
+            crate::remote_control::imp::local_input(false);
+            if info.flags & 1 != 0 {
+                return unsafe { CallNextHookEx(None, n_code, wparam, lparam) };
+            }
             match msg {
                 WM_MBUTTONDOWN | WM_MBUTTONUP => handle(0x04, msg == WM_MBUTTONDOWN),
                 WM_XBUTTONDOWN | WM_XBUTTONUP => {
@@ -217,12 +246,15 @@ mod imp {
                 if kb.is_err() || ms.is_err() {
                     eprintln!("nexus: failed to install input hooks: {kb:?} {ms:?}");
                 }
+                crate::remote_control::imp::HOOKS_READY.store(kb.is_ok() && ms.is_ok(), Ordering::SeqCst);
                 // LL hooks are serviced by this thread's message loop.
                 let mut msg = MSG::default();
                 while GetMessageW(&mut msg, None, 0, 0).as_bool() {
                     let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 }
+                crate::remote_control::imp::HOOKS_READY.store(false, Ordering::SeqCst);
+                crate::remote_control::stop();
             })
             .ok()?;
         Some(rx)

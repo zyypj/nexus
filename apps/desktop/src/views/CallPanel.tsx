@@ -10,6 +10,8 @@ import { isTauri, setWindowFullscreen } from "../lib/platform";
 import { useUi } from "../lib/ui";
 import { userMenu } from "./menus";
 import { streamMenu } from "./StreamMenu";
+import { requestControl, useRemoteControl } from "../call/remoteControl";
+import { RemoteControlSurface } from "./RemoteControl";
 
 interface StageTile {
   id: string;
@@ -315,6 +317,8 @@ function Tile({
   });
   const showVideo = screen ? live : p.hasCamera;
   const ref = useAttachedVideo(p.identity, screen ? "screen_share" : "camera", showVideo);
+  const canRequestControl = useRemoteControl((s) => s.canRequest);
+  const controlShare = useRemoteControl((s) => s.shares.find((x) => x.owner_id === p.identity));
   const name = user?.display_name ?? p.name;
   const avatar = user ?? { id: p.identity, display_name: p.name, avatar_url: null };
   const speaking = p.speaking && !p.micMuted;
@@ -335,6 +339,11 @@ function Tile({
             : { label: "Esta transmissão está sem áudio", icon: "volume", disabled: true }),
         { separator: true },
         ...layout,
+        !p.isLocal && live && canRequestControl && !!controlShare && {
+          label: controlShare.request_id ? "Controle já solicitado ou em uso" : "Solicitar controle da janela…",
+          icon: "screen", disabled: !!controlShare.request_id,
+          run: () => void requestControl(p.identity),
+        },
         !p.isLocal && live && { label: "Parar de assistir", icon: "x", run: () => calls.watchStream(p.identity, false) },
         // Your own stream: quality, sound and what is shared, changed live.
         { separator: true },
@@ -374,6 +383,7 @@ function Tile({
       ) : (
         <Avatar user={avatar} size={big ? 128 : 64} speaking={speaking} />
       )}
+      {screen && live && !p.isLocal && <RemoteControlSurface ownerId={p.identity} video={ref} />}
       {screen && <span className="tile-live">Ao vivo</span>}
       <div className="tile-label">
         {screen ? (

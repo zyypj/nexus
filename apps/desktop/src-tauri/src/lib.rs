@@ -1,6 +1,7 @@
 mod capture_bar;
 mod hotkeys;
 mod notifications;
+mod remote_control;
 pub mod screen_capture;
 mod secrets;
 pub mod system_audio;
@@ -78,6 +79,10 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             app_ready,
+            remote_control::remote_control_start,
+            remote_control::remote_control_status,
+            remote_control::remote_control_input,
+            remote_control::remote_control_stop,
             capture_bar::capture_bar_hide,
             screen_capture::capture_supported,
             screen_capture::capture_sources,
@@ -132,6 +137,7 @@ pub fn run() {
                     "open" => show_main(app),
                     "quit" => {
                         QUITTING.store(true, Ordering::SeqCst);
+                        remote_control::stop();
                         system_audio::system_audio_stop();
                         app.exit(0);
                     }
@@ -160,6 +166,7 @@ pub fn run() {
                 && CLOSE_TO_TRAY.load(Ordering::Relaxed)
                 && !QUITTING.load(Ordering::SeqCst)
             {
+                remote_control::stop();
                 api.prevent_close();
                 let _ = window.hide();
             }

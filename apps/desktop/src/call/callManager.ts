@@ -13,6 +13,7 @@ import {
   RoomEvent,
   Track,
   TrackEvent,
+  type TrackPublication,
   VideoPresets,
 } from "livekit-client";
 import { client } from "../lib/nexus";
@@ -39,6 +40,7 @@ import { MicProcessor } from "./noise";
 import { SpeakingDetector } from "./speaking";
 import { type Limitation, QualityGovernor, type QualityPreset, autoStart, preset } from "./screenQuality";
 import { type CaptureSource, NativeScreenCapture } from "./nativeScreen";
+import { setControlSource, stopRemoteControl } from "./remoteControl";
 import { syncStage, watchStream } from "./stageLayout";
 import { type CaptureMode, SystemAudioCapture } from "./systemAudio";
 
@@ -222,6 +224,7 @@ export class CallManager {
 
   /** Overtakes whatever is under way (leave, call ended, connection given up). */
   private stopAll() {
+    stopRemoteControl();
     this.wantIdle = true;
     this.roomGen = ++this.gen;
   }
@@ -349,6 +352,7 @@ export class CallManager {
    * no newer start/join came meanwhile.
    */
   private teardown(resetUi: boolean): Promise<void> {
+    stopRemoteControl();
     const gen = this.gen;
     const room = this.room;
     this.room = null;
@@ -383,18 +387,35 @@ export class CallManager {
       this.refresh();
       this.applyVolumes();
     };
+    // Someone else goes live (screen share, camera on): a short sound. Not for
+    // what is already live when we connect, nor for the tracks a person brings
+    // when joining (the join sound covers that).
+    const joinedAt = new Map<Id, number>();
+    const wentLive = (pub: TrackPublication, p: Participant) => {
+      if (p.isLocal || room.state !== ConnectionState.Connected) return;
+      if (pub.source !== Track.Source.ScreenShare && pub.source !== Track.Source.Camera) return;
+      if (performance.now() - (joinedAt.get(p.identity) ?? Number.NEGATIVE_INFINITY) < 2000) return;
+      playSound("stream_start");
+    };
     room
-      .on(RoomEvent.ParticipantConnected, () => {
+      .on(RoomEvent.ParticipantConnected, (p) => {
+        joinedAt.set(p.identity, performance.now());
         this.stopCalling();
         playSound("join");
         refresh();
       })
-      .on(RoomEvent.ParticipantDisconnected, () => {
+      .on(RoomEvent.ParticipantDisconnected, (p) => {
+        joinedAt.delete(p.identity);
         playSound("leave");
         refresh();
       })
+      // Screen shares are published anew each time; cameras are unmuted after the first time.
+      .on(RoomEvent.TrackPublished, wentLive)
       .on(RoomEvent.TrackMuted, refresh)
-      .on(RoomEvent.TrackUnmuted, refresh)
+      .on(RoomEvent.TrackUnmuted, (pub, p) => {
+        refresh();
+        if (pub.source === Track.Source.Camera) wentLive(pub, p);
+      })
       .on(RoomEvent.TrackSubscribed, (track) => {
         // Remote audio only plays once attached; with webAudioMix the element
         // stays muted and the sound goes through the per-user gain node.
@@ -431,7 +452,7 @@ export class CallManager {
         bump();
       })
       .on(RoomEvent.ConnectionQualityChanged, refresh)
-      .on(RoomEvent.Reconnecting, () => setUi({ status: "reconnecting" }))
+      .on(RoomEvent.Reconnecting, () => { stopRemoteControl(); setUi({ status: "reconnecting" }); })
       .on(RoomEvent.Reconnected, () => setUi({ status: "connected" }))
       .on(RoomEvent.Disconnected, (reason) => void this.onDisconnected(room, reason));
   }
@@ -801,6 +822,7 @@ export class CallManager {
       ? await this.startNativeScreen(opts.source, p, opts.motion)
       : await this.startBrowserScreen(p, opts.surface ?? "monitor", opts.motion);
     if (!started) return;
+    setControlSource(opts.source?.kind === "window" ? opts.source.id : null);
     this.governor = governor;
     this.lastSent = null;
     const window = opts.source?.kind === "window" ? opts.source : undefined;
@@ -970,6 +992,7 @@ export class CallManager {
   }
 
   async stopScreenShare() {
+    setControlSource(null);
     const room = this.room;
     const pub = room?.localParticipant.getTrackPublication(Track.Source.ScreenShare);
     if (this.nativeScreen && pub?.track) await room?.localParticipant.unpublishTrack(pub.track).catch(() => undefined);
@@ -986,6 +1009,7 @@ export class CallManager {
   }
 
   private async finishScreenStop() {
+    setControlSource(null);
     if (this.statsTimer) clearTimeout(this.statsTimer);
     this.statsTimer = null;
     this.governor = null;

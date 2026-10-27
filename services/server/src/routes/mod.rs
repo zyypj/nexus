@@ -6,6 +6,7 @@ pub mod common;
 pub mod conversations;
 pub mod friends;
 pub mod messages;
+pub mod remote_control;
 pub mod servers;
 pub mod users;
 
@@ -110,6 +111,10 @@ pub fn router(state: AppState) -> Router {
         .route("/calls/{id}/end", post(calls::end))
         .route("/calls/{id}/state", patch(calls::update_state))
         .route("/livekit/webhook", post(calls::livekit_webhook))
+        .route(
+            "/calls/{id}/remote-control",
+            get(remote_control::status).post(remote_control::command),
+        )
         // servers
         .route("/servers", post(servers::create))
         .route(

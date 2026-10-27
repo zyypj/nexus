@@ -124,6 +124,19 @@ impl Hub {
         }
     }
 
+    /// Private control events must never fan out to other devices of the owner.
+    pub fn send_session<T: Serialize>(&self, user_id: &str, session_id: &str, event: &str, data: &T) {
+        let payload = encode(event, data);
+        let users = self.users.read().unwrap_or_else(|e| e.into_inner());
+        if let Some(conns) = users.get(user_id) {
+            for conn in conns.values().filter(|c| c.session_id == session_id) {
+                if conn.tx.try_send(Outbound::Event(payload.clone())).is_err() {
+                    let _ = conn.tx.try_send(Outbound::Close("slow consumer"));
+                }
+            }
+        }
+    }
+
     pub fn send<'a, T: Serialize>(&self, user_ids: impl IntoIterator<Item = &'a str>, event: &str, data: &T) {
         self.send_raw(user_ids, &encode(event, data));
     }
