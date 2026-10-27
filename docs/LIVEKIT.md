@@ -63,10 +63,16 @@ servidor usa um token de 60 s com `roomAdmin` só para a room em questão.
 
 ## Webhooks
 
-O LiveKit envia `participant_left` e `room_finished` para `/api/livekit/webhook`. O servidor
-valida o JWT do header `Authorization` e o claim `sha256` do corpo antes de agir. Isso mantém
-o estado das calls correto quando um cliente trava ou perde a rede (validado com o LiveKit real:
-matar o cliente encerrou a call no Nexus em ~20 s).
+O LiveKit envia `participant_joined`, `participant_left` e `room_finished` para
+`/api/livekit/webhook`. O servidor valida o JWT do header `Authorization` e o claim `sha256` do
+corpo antes de agir. Isso mantém o estado das calls correto quando um cliente trava ou perde a
+rede (validado com o LiveKit real: matar o cliente encerrou a call no Nexus em ~20 s).
+
+`participant_joined` reconcilia o contrário: quem o LiveKit reconectou sozinho (sem passar pela
+API de novo) depois de um `participant_left` volta a constar na call; uma sessão numa call em que
+o usuário não está mais (trocou de call, perdeu o acesso) é expulsa. Antes de agir em
+`participant_joined`/`participant_left` o servidor confere com `ListParticipants`, porque os
+webhooks podem chegar fora de ordem.
 
 ## TLS
 

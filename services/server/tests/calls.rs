@@ -3,6 +3,16 @@
 
 mod common;
 
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+
+use axum::{
+    Json,
+    extract::{Path as AxPath, State},
+};
 use base64::Engine;
 use common::{Gateway, TestServer, TestUser};
 use nexus_server::livekit;
@@ -411,4 +421,237 @@ async fn dropped_participant_can_rejoin_same_room() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(room_of(&s, &again), room);
     assert_eq!(participants(&users[0], &call_id).await, vec![users[0].id.clone()]);
+}
+
+// ---------- LiveKit and the server disagreeing ----------
+
+/// Stand-in for LiveKit's RoomService: who is connected to which room, and
+/// who the server asked to remove.
+#[derive(Clone, Default)]
+struct FakeLiveKit {
+    rooms: Arc<Mutex<HashMap<String, Vec<String>>>>,
+    removed: Arc<Mutex<Vec<(String, String)>>>,
+}
+
+impl FakeLiveKit {
+    /// Starts the fake and a Nexus server whose RoomService calls go to it.
+    async fn start() -> (Self, TestServer) {
+        let fake = Self::default();
+        let app = axum::Router::new()
+            .route(
+                "/twirp/livekit.RoomService/{method}",
+                axum::routing::post(fake_room_service),
+            )
+            .with_state(fake.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let s = TestServer::start_with(|c| c.livekit.as_mut().unwrap().api_url = url).await;
+        (fake, s)
+    }
+
+    fn connected(&self, room: &str, identities: &[&str]) {
+        self.rooms
+            .lock()
+            .unwrap()
+            .insert(room.to_string(), identities.iter().map(|i| i.to_string()).collect());
+    }
+
+    fn clear_removed(&self) {
+        self.removed.lock().unwrap().clear();
+    }
+
+    /// Waits (briefly: kicks run in the background) until `identity` was removed from `room`.
+    async fn wait_removed(&self, room: &str, identity: &str) {
+        for _ in 0..100 {
+            if self.was_removed(room, identity) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("{identity} was never removed from {room}");
+    }
+
+    fn was_removed(&self, room: &str, identity: &str) -> bool {
+        self.removed
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(r, i)| r == room && i == identity)
+    }
+}
+
+async fn fake_room_service(
+    State(fake): State<FakeLiveKit>,
+    AxPath(method): AxPath<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let room = body["room"].as_str().unwrap_or_default().to_string();
+    match method.as_str() {
+        "ListParticipants" => {
+            let ids = fake.rooms.lock().unwrap().get(&room).cloned().unwrap_or_default();
+            let participants: Vec<Value> = ids.iter().map(|i| json!({ "identity": i })).collect();
+            Json(json!({ "participants": participants }))
+        }
+        "RemoveParticipant" => {
+            let identity = body["identity"].as_str().unwrap_or_default().to_string();
+            if let Some(ids) = fake.rooms.lock().unwrap().get_mut(&room) {
+                ids.retain(|i| *i != identity);
+            }
+            fake.removed.lock().unwrap().push((room, identity));
+            Json(json!({}))
+        }
+        _ => Json(json!({})),
+    }
+}
+
+async fn webhook(s: &TestServer, event: &str, room: &str, identity: &str) {
+    let body = json!({ "event": event, "room": { "name": room }, "participant": { "identity": identity } }).to_string();
+    let res = s
+        .http
+        .post(format!("{}/api/livekit/webhook", s.base))
+        .header("authorization", signed_webhook(s, &body))
+        .body(body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+/// LiveKit's own reconnect (the client never calls our API again) after a
+/// `participant_left` that came before the new session: the server had marked
+/// the user as gone, so others stopped listing them and, alone, the call
+/// would have been ended under them.
+#[tokio::test]
+async fn livekit_reconnect_is_reconciled() {
+    let (lk, s) = FakeLiveKit::start().await;
+    let (users, gid) = s.group("lkrc", 2).await;
+    let join = start(&users[0], &gid).await;
+    start(&users[1], &gid).await;
+    let call_id = join["call"]["id"].as_str().unwrap().to_string();
+    let room = room_of(&s, &join);
+    let (mut g0, _) = Gateway::connect(&s, &users[0].token).await;
+
+    // Old session gone, new one not in yet.
+    lk.connected(&room, &[&users[0].id]);
+    webhook(&s, "participant_left", &room, &users[1].id).await;
+    assert_eq!(g0.next_event("CALL_LEAVE").await["user_id"], users[1].id.as_str());
+    assert_eq!(participants(&users[0], &call_id).await, vec![users[0].id.clone()]);
+
+    // The new session arrives: the user is back for everyone.
+    lk.connected(&room, &[&users[0].id, &users[1].id]);
+    webhook(&s, "participant_joined", &room, &users[1].id).await;
+    assert_eq!(
+        g0.next_event("CALL_JOIN").await["participant"]["user_id"],
+        users[1].id.as_str()
+    );
+    assert_eq!(participants(&users[0], &call_id).await.len(), 2);
+
+    // Joins that were already known change nothing.
+    webhook(&s, "participant_joined", &room, &users[1].id).await;
+    g0.assert_no_event("CALL_JOIN", 200).await;
+    assert_eq!(participants(&users[0], &call_id).await.len(), 2);
+    assert!(!lk.was_removed(&room, &users[1].id));
+}
+
+/// A `participant_joined` that arrives after the user already left (webhooks
+/// are not ordered with our API) must not bring them back.
+#[tokio::test]
+async fn stale_participant_joined_is_ignored() {
+    let (lk, s) = FakeLiveKit::start().await;
+    let (users, gid) = s.group("lkst", 2).await;
+    let join = start(&users[0], &gid).await;
+    start(&users[1], &gid).await;
+    let call_id = join["call"]["id"].as_str().unwrap().to_string();
+    let room = room_of(&s, &join);
+
+    users[1].post(&format!("/api/calls/{call_id}/leave"), json!({})).await;
+    lk.connected(&room, &[&users[0].id]);
+    webhook(&s, "participant_joined", &room, &users[1].id).await;
+    assert_eq!(participants(&users[0], &call_id).await, vec![users[0].id.clone()]);
+}
+
+/// A LiveKit session in a call the server no longer has the user in (they
+/// switched calls, or lost access) is removed instead of being re-admitted.
+#[tokio::test]
+async fn livekit_session_outside_the_users_call_is_removed() {
+    let (lk, s) = FakeLiveKit::start().await;
+    let a = s.register("lkout_a").await;
+    let b = s.register("lkout_b").await;
+    let c = s.register("lkout_c").await;
+    let dm_ab = s.dm(&a, &b).await;
+    let dm_ac = s.dm(&a, &c).await;
+    let first = start(&b, &dm_ab).await;
+    start(&a, &dm_ab).await;
+    let call1 = first["call"]["id"].as_str().unwrap().to_string();
+    let room1 = room_of(&s, &first);
+    lk.connected(&room1, &[&b.id, &a.id]);
+
+    // Switching calls removes the old session...
+    start(&a, &dm_ac).await;
+    lk.wait_removed(&room1, &a.id).await;
+    // ...and one that shows up there again is removed too, not re-admitted.
+    lk.clear_removed();
+    lk.connected(&room1, &[&b.id, &a.id]);
+    webhook(&s, "participant_joined", &room1, &a.id).await;
+    lk.wait_removed(&room1, &a.id).await;
+    assert_eq!(participants(&b, &call1).await, vec![b.id.clone()]);
+
+    // Same for someone removed from the group, whose token is still valid.
+    let (users, gid) = s.group("lkrm", 2).await;
+    let join = start(&users[0], &gid).await;
+    start(&users[1], &gid).await;
+    let call_id = join["call"]["id"].as_str().unwrap().to_string();
+    let room = room_of(&s, &join);
+    users[0]
+        .delete(&format!("/api/conversations/{gid}/members/{}", users[1].id))
+        .await;
+    lk.wait_removed(&room, &users[1].id).await;
+    lk.clear_removed();
+    lk.connected(&room, &[&users[0].id, &users[1].id]);
+    webhook(&s, "participant_joined", &room, &users[1].id).await;
+    lk.wait_removed(&room, &users[1].id).await;
+    assert_eq!(participants(&users[0], &call_id).await, vec![users[0].id.clone()]);
+}
+
+/// Two joins of the same user racing (double click, two devices): a token is
+/// only handed out once the user really took a seat in that call (everyone
+/// got CALL_JOIN), and they end up in exactly one call.
+#[tokio::test]
+async fn concurrent_joins_never_hand_out_a_token_without_the_seat() {
+    let s = TestServer::start().await;
+    let a = s.register("race_a").await;
+    let b = s.register("race_b").await;
+    let c = s.register("race_c").await;
+    let dm_ab = s.dm(&a, &b).await;
+    let dm_ac = s.dm(&a, &c).await;
+    let call1 = start(&b, &dm_ab).await["call"]["id"].as_str().unwrap().to_string();
+    let call2 = start(&c, &dm_ac).await["call"]["id"].as_str().unwrap().to_string();
+    let (mut ga, _) = Gateway::connect(&s, &a.token).await;
+
+    let (join1, join2) = (format!("/api/calls/{call1}/join"), format!("/api/calls/{call2}/join"));
+    for _ in 0..10 {
+        for call in [&call1, &call2] {
+            a.post(&format!("/api/calls/{call}/leave"), json!({})).await;
+        }
+        // Forget the previous round's events.
+        while tokio::time::timeout(Duration::from_millis(100), ga.next_any())
+            .await
+            .is_ok()
+        {}
+        let (r1, r2) = tokio::join!(a.post(&join1, json!({})), a.post(&join2, json!({})));
+        assert_eq!(r1.0, StatusCode::OK, "{}", r1.1);
+        assert_eq!(r2.0, StatusCode::OK, "{}", r2.1);
+        // Both joins answered with a token: both must have seated the user.
+        let mut seated = std::collections::HashSet::new();
+        while seated.len() < 2 {
+            let ev = ga.next_event("CALL_JOIN").await;
+            if ev["participant"]["user_id"] == a.id.as_str() {
+                seated.insert(ev["call_id"].as_str().unwrap().to_string());
+            }
+        }
+        let in1 = participants(&a, &call1).await.contains(&a.id);
+        let in2 = participants(&a, &call2).await.contains(&a.id);
+        assert!(in1 ^ in2, "in exactly one call (call1: {in1}, call2: {in2})");
+    }
 }

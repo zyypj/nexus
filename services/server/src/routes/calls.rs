@@ -169,10 +169,22 @@ pub async fn start(
         .await?;
     }
 
-    let (call_id, created) = ensure_call(&state, &conversation_id, &user.id).await?;
+    let (call_id, mut created) = ensure_call(&state, &conversation_id, &user.id).await?;
+    let join = match join_internal(&state, &user, &call_id).await {
+        // The call emptied out and ended between finding it and joining it:
+        // start the next one instead of failing.
+        Err(ApiError::Conflict(CALL_ENDED)) => {
+            let (call_id, again) = ensure_call(&state, &conversation_id, &user.id).await?;
+            created = again;
+            join_internal(&state, &user, &call_id).await?
+        }
+        other => other?,
+    };
     let status = if created { StatusCode::CREATED } else { StatusCode::OK };
-    Ok((status, Json(join_internal(&state, &user, &call_id).await?)))
+    Ok((status, Json(join)))
 }
+
+const CALL_ENDED: &str = "call has ended";
 
 /// The conversation's running call, started now when there is none. Returns
 /// its id and whether it was created here.
@@ -298,21 +310,34 @@ pub async fn join(
 async fn join_internal(state: &AppState, user: &AuthUser, call_id: &str) -> ApiResult<CallJoin> {
     let lk = livekit_cfg(state)?;
     let call = load_call(&state.db, call_id).await?;
+    let sources = call_access(state, &call, &user.id).await?;
+    take_seat(state, &call, &user.id).await?;
+    let profile = load_user(&state.db, &user.id).await?;
+    let token = livekit::join_token_with(lk, &call.room_name, &user.id, &profile.display_name, &sources)?;
+    Ok(CallJoin {
+        call: load_call(&state.db, call_id).await?,
+        livekit_url: lk.url.clone(),
+        livekit_token: token,
+    })
+}
+
+/// Whether the user may be in the call; if so, what they may publish there.
+async fn call_access(state: &AppState, call: &Call, user_id: &str) -> ApiResult<Vec<&'static str>> {
     // Membership is the permission: a non-member gets 404, never a token.
-    let kind = require_member(&state.db, &call.conversation_id, &user.id)
+    let kind = require_member(&state.db, &call.conversation_id, user_id)
         .await
         .map_err(|_| ApiError::NotFound("call"))?;
-    ensure_dm_not_blocked(&state.db, &call.conversation_id, kind, &user.id).await?;
+    ensure_dm_not_blocked(&state.db, &call.conversation_id, kind, user_id).await?;
     if call.ended_at.is_some() {
-        return Err(ApiError::Conflict("call has ended"));
+        return Err(ApiError::Conflict(CALL_ENDED));
     }
     // Voice channels: CONNECT to join; SPEAK / VIDEO decide what may be published.
-    let mut sources: Vec<&str> = livekit::PUBLISH_SOURCES.to_vec();
+    let mut sources: Vec<&'static str> = livekit::PUBLISH_SOURCES.to_vec();
     if kind.is_channel() {
         let p = crate::permissions::require_channel_perm(
             &state.db,
             &call.conversation_id,
-            &user.id,
+            user_id,
             crate::permissions::CONNECT,
             "you cannot connect to this channel",
         )
@@ -323,62 +348,77 @@ async fn join_internal(state: &AppState, user: &AuthUser, call_id: &str) -> ApiR
             _ => true,
         });
     }
+    Ok(sources)
+}
 
-    // One call at a time: joining here leaves any other call.
-    let other_calls: Vec<(String,)> =
-        sqlx::query_as("SELECT call_id FROM call_participants WHERE user_id = ? AND left_at IS NULL AND call_id != ?")
-            .bind(&user.id)
-            .bind(call_id)
-            .fetch_all(&state.db)
-            .await?;
-    for (other,) in other_calls {
-        leave_internal(state, &other, &user.id, Leave::REMOVED).await?;
-    }
+/// Seats the user in the call and tells everyone (CALL_JOIN). One call at a
+/// time: any other call is left first. `Conflict` when the call has ended,
+/// so no token is ever handed out for a seat that was not taken.
+async fn take_seat(state: &AppState, call: &Call, user_id: &str) -> ApiResult<()> {
+    // Another join of the same user (double click, second device) can take a
+    // seat between leaving the other calls and sitting down here: then leave
+    // that one too and try again.
+    for _ in 0..3 {
+        let other_calls: Vec<(String,)> = sqlx::query_as(
+            "SELECT call_id FROM call_participants WHERE user_id = ? AND left_at IS NULL AND call_id != ?",
+        )
+        .bind(user_id)
+        .bind(&call.id)
+        .fetch_all(&state.db)
+        .await?;
+        for (other,) in other_calls {
+            leave_internal(state, &other, user_id, Leave::REMOVED).await?;
+        }
 
-    let already: Option<(i64,)> =
-        sqlx::query_as("SELECT 1 FROM call_participants WHERE call_id = ? AND user_id = ? AND left_at IS NULL")
-            .bind(call_id)
-            .bind(&user.id)
-            .fetch_optional(&state.db)
-            .await?;
-    if already.is_none() {
         let now = now_ms();
-        let res = sqlx::query("INSERT INTO call_participants (call_id, user_id, joined_at) VALUES (?, ?, ?)")
-            .bind(call_id)
-            .bind(&user.id)
-            .bind(now)
-            .execute(&state.db)
-            .await;
+        // Only into a running call: one that ended meanwhile keeps no participants.
+        let res = sqlx::query(
+            "INSERT INTO call_participants (call_id, user_id, joined_at)
+             SELECT id, ?, ? FROM calls WHERE id = ? AND ended_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM call_participants WHERE call_id = ? AND user_id = ? AND left_at IS NULL)",
+        )
+        .bind(user_id)
+        .bind(now)
+        .bind(&call.id)
+        .bind(&call.id)
+        .bind(user_id)
+        .execute(&state.db)
+        .await;
         match res {
-            Ok(_) => {
+            Ok(r) if r.rows_affected() == 1 => {
                 let participant = CallParticipant {
-                    user_id: user.id.clone(),
+                    user_id: user_id.to_string(),
                     joined_at: now,
                     muted: false,
                     deafened: false,
                     video: false,
                     screen: false,
                 };
-                broadcast(
+                return broadcast(
                     state,
                     &call.conversation_id,
                     events::CALL_JOIN,
-                    &json!({ "call_id": call_id, "conversation_id": call.conversation_id, "participant": participant }),
+                    &json!({ "call_id": call.id, "conversation_id": call.conversation_id, "participant": participant }),
                 )
-                .await?;
+                .await;
             }
-            Err(e) if crate::db::is_unique_violation(&e) => {}
+            // Already seated here, or the call ended.
+            Ok(_) => {
+                let running: Option<(i64,)> = sqlx::query_as("SELECT 1 FROM calls WHERE id = ? AND ended_at IS NULL")
+                    .bind(&call.id)
+                    .fetch_optional(&state.db)
+                    .await?;
+                return if running.is_some() {
+                    Ok(())
+                } else {
+                    Err(ApiError::Conflict(CALL_ENDED))
+                };
+            }
+            Err(e) if crate::db::is_unique_violation(&e) => continue,
             Err(e) => return Err(e.into()),
         }
     }
-
-    let profile = load_user(&state.db, &user.id).await?;
-    let token = livekit::join_token_with(lk, &call.room_name, &user.id, &profile.display_name, &sources)?;
-    Ok(CallJoin {
-        call: load_call(&state.db, call_id).await?,
-        livekit_url: lk.url.clone(),
-        livekit_token: token,
-    })
+    Err(ApiError::Conflict("call state changed, retry"))
 }
 
 pub async fn leave(
@@ -449,7 +489,7 @@ pub async fn leave_internal(state: &AppState, call_id: &str, user_id: &str, how:
     )
     .await?;
     if how.kick {
-        kick_from_room(state, &call.room_name, user_id);
+        kick_from_room(state, call_id, &call.room_name, user_id);
     }
     if call.participants.is_empty() && call.ended_at.is_none() {
         if how.end_now {
@@ -461,13 +501,26 @@ pub async fn leave_internal(state: &AppState, call_id: &str, user_id: &str, how:
     Ok(true)
 }
 
-fn kick_from_room(state: &AppState, room: &str, user_id: &str) {
+/// Disconnects the user's LiveKit session in the call's room (in the
+/// background). Identity is the user id, so a kick that lands after the user
+/// came back into this same call would throw out the new session: skip it then.
+fn kick_from_room(state: &AppState, call_id: &str, room: &str, user_id: &str) {
     let Some(lk) = state.config.livekit.clone() else { return };
-    let http = state.http.clone();
+    let state = state.clone();
+    let call_id = call_id.to_string();
     let room = room.to_string();
     let user_id = user_id.to_string();
     tokio::spawn(async move {
-        if let Err(e) = livekit::remove_participant(&http, &lk, &room, &user_id).await {
+        let back: Result<Option<(i64,)>, _> =
+            sqlx::query_as("SELECT 1 FROM call_participants WHERE call_id = ? AND user_id = ? AND left_at IS NULL")
+                .bind(&call_id)
+                .bind(&user_id)
+                .fetch_optional(&state.db)
+                .await;
+        if matches!(back, Ok(Some(_))) {
+            return;
+        }
+        if let Err(e) = livekit::remove_participant(&state.http, &lk, &room, &user_id).await {
             tracing::warn!(error = %e, room, "could not remove participant from LiveKit room");
         }
     });
@@ -616,8 +669,20 @@ pub async fn leave_all_calls_in_conversation(state: &AppState, conversation_id: 
 const EMPTY_CALL_GRACE: std::time::Duration = std::time::Duration::from_secs(60);
 
 fn spawn_empty_call_reaper(state: AppState, call_id: String, grace: std::time::Duration) {
+    let since = now_ms();
     tokio::spawn(async move {
         tokio::time::sleep(grace).await;
+        // Someone came and left again after this reaper was set: the call has
+        // not been empty for the whole grace, and that leave set its own reaper.
+        let left_since: Result<Option<(i64,)>, _> =
+            sqlx::query_as("SELECT 1 FROM call_participants WHERE call_id = ? AND left_at > ? LIMIT 1")
+                .bind(&call_id)
+                .bind(since)
+                .fetch_optional(&state.db)
+                .await;
+        if !matches!(left_since, Ok(None)) {
+            return;
+        }
         if let Ok(call) = load_call(&state.db, &call_id).await
             && call.ended_at.is_none()
             && call.participants.is_empty()
@@ -693,8 +758,56 @@ pub async fn livekit_webhook(State(state): State<AppState>, headers: HeaderMap, 
                 }
             }
         }
+        "participant_joined" => {
+            if let Some(p) = event.participant {
+                reconcile_joined(&state, &call_id, &room.name, &p.identity).await?;
+            }
+        }
         "room_finished" => end_internal(&state, &call_id).await?,
         _ => {}
     }
     Ok(StatusCode::OK)
+}
+
+/// Someone connected to the call's room. Usually they joined through our API
+/// a moment ago and are seated already. When not:
+/// - LiveKit reconnected them by itself (no new API call) after a
+///   `participant_left` had already unseated them: seat them again, or they
+///   are invisible to the others and, alone, the call would end under them;
+/// - their seat is in another call now, or they lost access (their token
+///   stays valid for a while): remove that session.
+async fn reconcile_joined(state: &AppState, call_id: &str, room: &str, user_id: &str) -> ApiResult<()> {
+    let call = load_call(&state.db, call_id).await?;
+    if call.participants.iter().any(|p| p.user_id == user_id) {
+        return Ok(());
+    }
+    // A late webhook for a session that is already gone (the user left).
+    let Some(lk) = state.config.livekit.as_ref() else {
+        return Ok(());
+    };
+    let present = livekit::participant_present(&state.http, lk, room, user_id)
+        .await
+        .unwrap_or(true);
+    if !present {
+        return Ok(());
+    }
+    let elsewhere: Option<(i64,)> =
+        sqlx::query_as("SELECT 1 FROM call_participants WHERE user_id = ? AND left_at IS NULL AND call_id != ?")
+            .bind(user_id)
+            .bind(call_id)
+            .fetch_optional(&state.db)
+            .await?;
+    let denied = match call_access(state, &call, user_id).await {
+        Ok(_) => false,
+        Err(ApiError::NotFound(_) | ApiError::Forbidden(_) | ApiError::Conflict(_)) => true,
+        Err(e) => return Err(e),
+    };
+    if elsewhere.is_some() || denied {
+        kick_from_room(state, call_id, room, user_id);
+        return Ok(());
+    }
+    match take_seat(state, &call, user_id).await {
+        Err(ApiError::Conflict(_)) => Ok(()),
+        other => other,
+    }
 }

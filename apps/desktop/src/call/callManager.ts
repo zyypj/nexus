@@ -1,5 +1,5 @@
-import type { Id } from "@nexus/protocol";
-import { backoffDelay } from "@nexus/shared";
+import type { CallJoin, Id } from "@nexus/protocol";
+import { ApiError, backoffDelay } from "@nexus/shared";
 import {
   AudioPresets,
   ConnectionState,
@@ -141,8 +141,21 @@ export class CallManager {
   private statsTimer: ReturnType<typeof setTimeout> | null = null;
   private pttReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   private stateSync: ReturnType<typeof setTimeout> | null = null;
-  private rejoinAttempt = 0;
-  private leaving = false;
+  /**
+   * Bumped by every start/join/leave and when the call ends: an older attempt
+   * (request, connect or reconnect) that finishes later sees it was overtaken
+   * and backs off instead of touching the room, the UI or the server.
+   */
+  private gen = 0;
+  /** `gen` of the attempt that owns `room`; behind `gen` while a newer one is on its way. */
+  private roomGen = 0;
+  /** The user left (or the call ended) since the last start/join. */
+  private wantIdle = true;
+  /** Start/join requests go one at a time, so the server sees them in the user's order. */
+  private requests: Promise<unknown> = Promise.resolve();
+  /** Room clean-up under way; a new room waits for it (it closes the shared AudioContext). */
+  private tearing: Promise<void> = Promise.resolve();
+  private micPublishing: Promise<void> | null = null;
   private callingTimer: ReturnType<typeof setTimeout> | null = null;
   private watchedMic: LocalAudioTrack | null = null;
   private speaking: SpeakingDetector | null = null;
@@ -174,8 +187,11 @@ export class CallManager {
   // ---------- join / leave ----------
 
   async start(conversationId: Id): Promise<void> {
-    const join = await client().api.startCall(conversationId);
-    await this.connect(join.call.id, join.call.conversation_id, join.livekit_url, join.livekit_token);
+    const gen = this.begin();
+    const join = await this.request(gen, () => client().api.startCall(conversationId)).catch((e) =>
+      this.requestFailed(gen, e),
+    );
+    if (!join || !(await this.connect(gen, join))) return;
     // Ringback while nobody else has joined yet (stops on join or after 45 s).
     // Voice channels are rooms people drop into: nobody is being called.
     const channel = !!client().state.conversations[conversationId]?.server_id;
@@ -192,25 +208,71 @@ export class CallManager {
   }
 
   async join(callId: Id): Promise<void> {
-    const join = await client().api.joinCall(callId);
-    await this.connect(join.call.id, join.call.conversation_id, join.livekit_url, join.livekit_token);
+    const gen = this.begin();
+    const join = await this.request(gen, () => client().api.joinCall(callId)).catch((e) =>
+      this.requestFailed(gen, e),
+    );
+    if (join) await this.connect(gen, join);
   }
 
-  private async connect(callId: Id, conversationId: Id, url: string, token: string) {
-    if (this.room) await this.teardown(false);
-    this.leaving = false;
+  private begin(): number {
+    this.wantIdle = false;
+    return ++this.gen;
+  }
+
+  /** Overtakes whatever is under way (leave, call ended, connection given up). */
+  private stopAll() {
+    this.wantIdle = true;
+    this.roomGen = ++this.gen;
+  }
+
+  /**
+   * Sends a start/join request after the ones before it; null when a newer
+   * start/join/leave came first (then it is not sent at all).
+   */
+  private request(gen: number, send: () => Promise<CallJoin>): Promise<CallJoin | null> {
+    const run = this.requests.then(() => (gen === this.gen ? send() : null));
+    this.requests = run.catch(() => undefined);
+    return run;
+  }
+
+  /** A start/join the server refused: still in the previous call, if it is still up. */
+  private requestFailed(gen: number, e: unknown): never {
+    if (gen === this.gen) {
+      this.roomGen = gen;
+      // It may be gone meanwhile (the server takes us out of it before
+      // seating us, or it had dropped and was reconnecting): out for good.
+      if (!this.room || this.room.state === ConnectionState.Disconnected) void this.leave();
+    }
+    throw e;
+  }
+
+  /** Connects to the call's room; false when a newer start/join/leave overtook it. */
+  private async connect(gen: number, join: CallJoin, rejoin = false): Promise<boolean> {
+    const { id: callId, conversation_id: conversationId } = join.call;
+    // The previous room (switching calls, or the dead one when reconnecting)
+    // must be fully gone first: its clean-up closes the AudioContext.
+    if (gen === this.gen) await (this.room ? this.teardown(false) : this.tearing);
+    if (gen !== this.gen) {
+      // The server seated us; only a leave since then means getting up again.
+      if (this.wantIdle) void client().api.leaveCall(callId).catch(() => undefined);
+      return false;
+    }
+    this.roomGen = gen;
     const pre = useCall.getState();
     this.wantMuted = pre.muted;
     setUi({
       ...idle,
-      status: "connecting",
+      status: rejoin ? "reconnecting" : "connecting",
       callId,
       conversationId,
       muted: pre.muted,
       deafened: pre.deafened,
       stageExpanded: pre.stageExpanded,
     });
+    // From here a leave finds this call in the UI and leaves it on the server itself.
     await resumeAudio();
+    if (gen !== this.gen) return false;
     const s = settings();
     const room = new Room({
       adaptiveStream: true,
@@ -234,25 +296,35 @@ export class CallManager {
     this.wire(room);
     navigator.mediaDevices.addEventListener("devicechange", this.onDeviceChange);
     try {
-      await room.connect(url, token, { autoSubscribe: true });
+      await room.connect(join.livekit_url, join.livekit_token, { autoSubscribe: true });
     } catch (e) {
-      this.room = null;
-      setUi({ ...idle, error: `Não foi possível conectar à chamada: ${(e as Error).message}` });
+      // Overtaken (left, switched): whoever did it has cleaned up.
+      if (this.room !== room) return false;
+      await this.teardown(false);
+      // Reconnecting: the retry loop decides what comes next.
+      if (rejoin) throw e;
+      setUi({
+        ...idle,
+        muted: this.wantMuted,
+        deafened: useCall.getState().deafened,
+        error: `Não foi possível conectar à chamada: ${(e as Error).message}`,
+      });
       void client().api.leaveCall(callId).catch(() => undefined);
       throw e;
     }
-    if (this.rejoinAttempt === 0) playSound("join");
-    this.rejoinAttempt = 0;
+    if (this.room !== room) return false;
+    if (!rejoin) playSound("join");
     setUi({ status: "connected" });
     this.speaking?.start();
     await this.publishMic();
     this.refresh();
     this.syncServerState();
+    return true;
   }
 
   async leave(): Promise<void> {
     const callId = useCall.getState().callId;
-    this.leaving = true;
+    this.stopAll();
     await this.teardown(true);
     if (callId) await client().api.leaveCall(callId).catch(() => undefined);
   }
@@ -260,30 +332,48 @@ export class CallManager {
   /** CALL_END from the gateway or the call disappearing from state. */
   async onCallEnded(callId: Id) {
     if (useCall.getState().callId !== callId) return;
-    this.leaving = true;
+    // Already on the way to another call: only this room goes.
+    if (this.gen !== this.roomGen) return this.teardown(false);
+    this.stopAll();
     await this.teardown(true);
   }
 
-  private async teardown(resetUi: boolean) {
-    this.stopCalling();
-    if (resetUi && this.room) playSound("leave");
-    if (this.statsTimer) clearTimeout(this.statsTimer);
-    this.statsTimer = null;
-    await this.stopSystemAudio();
-    this.speaking?.stop();
-    this.speaking = null;
+  private resetUi() {
+    setUi({ ...idle, muted: this.wantMuted, deafened: useCall.getState().deafened });
+  }
+
+  /**
+   * Leaves the room and frees what it used. The room is let go at once (its
+   * events are ignored from here); the slow part runs after any clean-up
+   * still under way, and only resets the UI and closes the AudioContext when
+   * no newer start/join came meanwhile.
+   */
+  private teardown(resetUi: boolean): Promise<void> {
+    const gen = this.gen;
     const room = this.room;
     this.room = null;
+    this.stopCalling();
+    if (resetUi && room) playSound("leave");
+    if (this.statsTimer) clearTimeout(this.statsTimer);
+    this.statsTimer = null;
+    this.speaking?.stop();
+    this.speaking = null;
     navigator.mediaDevices.removeEventListener("devicechange", this.onDeviceChange);
     this.watchedMic = null;
-    if (room) await room.disconnect(true);
-    for (const el of document.querySelectorAll("audio[data-nexus-audio]")) el.remove();
-    await this.micProcessor?.destroy();
-    this.micProcessor = null;
     this.governor = null;
     this.knownStreams.clear();
-    if (resetUi) setUi({ ...idle, muted: this.wantMuted, deafened: useCall.getState().deafened });
-    void releaseAudio();
+    const run = async () => {
+      await this.stopSystemAudio();
+      if (room) await room.disconnect(true);
+      await this.micProcessor?.destroy();
+      this.micProcessor = null;
+      for (const el of document.querySelectorAll("audio[data-nexus-audio]")) el.remove();
+      if (gen !== this.gen || this.room) return;
+      if (resetUi) this.resetUi();
+      await releaseAudio();
+    };
+    this.tearing = this.tearing.then(run).catch(() => undefined);
+    return this.tearing;
   }
 
   private wire(room: Room) {
@@ -346,31 +436,66 @@ export class CallManager {
       .on(RoomEvent.Disconnected, (reason) => void this.onDisconnected(room, reason));
   }
 
-  /**
-   * LiveKit already retries ICE/signal drops internally; this handles the
-   * case where it gives up (long outage): ask our server for a new token for
-   * the same call and reconnect, with backoff.
-   */
   private async onDisconnected(room: Room, reason?: DisconnectReason) {
-    if (this.room !== room || this.leaving) return;
-    const callId = useCall.getState().callId;
+    if (this.room !== room) return;
+    // Switching calls: the server took us out of this one and the next one
+    // is on its way. Resetting the UI here would wipe the new call.
+    if (this.gen !== this.roomGen) return void this.teardown(false);
+    const { callId, conversationId } = useCall.getState();
     const terminal =
       reason === DisconnectReason.CLIENT_INITIATED ||
       reason === DisconnectReason.ROOM_DELETED ||
       reason === DisconnectReason.PARTICIPANT_REMOVED ||
       reason === DisconnectReason.DUPLICATE_IDENTITY;
-    if (terminal || !callId || this.rejoinAttempt >= 6) {
+    if (terminal || !callId || !conversationId) {
+      this.stopAll();
       await this.teardown(true);
       if (reason === DisconnectReason.DUPLICATE_IDENTITY)
         setUi({ error: "Você entrou nesta chamada em outro dispositivo." });
       return;
     }
+    await this.rejoin(this.gen, callId, conversationId);
+  }
+
+  /**
+   * LiveKit already retries ICE/signal drops internally; this handles the
+   * case where it gives up (long outage): ask our server for a new token for
+   * the same call and reconnect, with backoff. Any start/join/leave or the
+   * call ending stops it.
+   */
+  private async rejoin(gen: number, callId: Id, conversationId: Id) {
     setUi({ status: "reconnecting" });
-    const delay = backoffDelay(this.rejoinAttempt++, { baseMs: 1000, capMs: 15_000 });
-    setTimeout(() => {
-      if (this.room !== room || this.leaving) return;
-      void this.join(callId).catch(() => this.onDisconnected(room, reason));
-    }, delay);
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await new Promise((r) => setTimeout(r, backoffDelay(attempt, { baseMs: 1000, capMs: 15_000 })));
+      if (gen !== this.gen) return;
+      try {
+        const join = await this.request(gen, () => this.rejoinRequest(callId, conversationId));
+        if (join) await this.connect(gen, join, true);
+        return;
+      } catch (e) {
+        if (gen !== this.gen) return;
+        // No access any more, or a call that is over: retrying will not help.
+        if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 408 && e.status !== 429)
+          break;
+        setUi({ status: "reconnecting" });
+      }
+    }
+    if (gen !== this.gen) return;
+    this.stopAll();
+    await this.teardown(true);
+    setUi({ error: "A conexão com a chamada caiu." });
+  }
+
+  private async rejoinRequest(callId: Id, conversationId: Id): Promise<CallJoin> {
+    try {
+      return await client().api.joinCall(callId);
+    } catch (e) {
+      // The call ended while we were away (everyone dropped, or LiveKit
+      // restarted): a voice channel is a place, so go back into it.
+      if (e instanceof ApiError && e.status === 409 && client().state.conversations[conversationId]?.server_id)
+        return client().api.startCall(conversationId);
+      throw e;
+    }
   }
 
   // ---------- microphone ----------
@@ -379,7 +504,19 @@ export class CallManager {
     return this.room?.localParticipant.getTrackPublication(Track.Source.Microphone);
   }
 
-  private async publishMic() {
+  /**
+   * Publishes the mic. A failure leaves the call up without it (error shown);
+   * a device appearing or unmuting tries again, so nobody stays silent for
+   * the rest of the call.
+   */
+  private publishMic(): Promise<void> {
+    this.micPublishing ??= this.doPublishMic().finally(() => {
+      this.micPublishing = null;
+    });
+    return this.micPublishing;
+  }
+
+  private async doPublishMic() {
     const room = this.room;
     if (!room) return;
     try {
@@ -429,7 +566,10 @@ export class CallManager {
     void this.ensureChosenMic();
   }
 
-  private onDeviceChange = () => void this.ensureChosenMic();
+  private onDeviceChange = () => {
+    if (this.room?.state === ConnectionState.Connected && !this.micPub()) void this.publishMic();
+    else void this.ensureChosenMic();
+  };
 
   private ensuring = false;
   private async ensureChosenMic() {
@@ -535,6 +675,8 @@ export class CallManager {
       setUi({ muted: this.wantMuted });
       playSound(this.wantMuted ? "mute" : "unmute");
     }
+    // The mic failed when the call connected: unmuting is the moment to retry.
+    if (!this.wantMuted && this.room?.state === ConnectionState.Connected && !this.micPub()) await this.publishMic();
     await this.applyMicGate();
     this.syncServerState();
   }

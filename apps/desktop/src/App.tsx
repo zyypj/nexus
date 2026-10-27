@@ -1,5 +1,5 @@
 import { totalUnread } from "@nexus/shared";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { calls, useCall } from "./call/callStore";
 import { createClient, useNexus, useSession } from "./lib/nexus";
 import { invoke, isTauri, setBadge } from "./lib/platform";
@@ -78,8 +78,14 @@ function CallLifecycle() {
   const callId = useCall((s) => s.callId);
   const exists = useNexus((s) => (callId ? !!s.calls[callId] : true));
   const ready = useNexus((s) => s.connection === "ready");
+  // Our own start/join can answer before the gateway's CALL_CREATE arrives:
+  // a call only counts as ended once it was seen and then went away. (One
+  // that ends before ever showing up is closed by LiveKit deleting its room.)
+  const seen = useRef<string | null>(null);
   useEffect(() => {
-    if (callId && ready && !exists) void calls.onCallEnded(callId);
+    if (!callId) return;
+    if (exists) seen.current = callId;
+    else if (ready && seen.current === callId) void calls.onCallEnded(callId);
   }, [callId, exists, ready]);
   return null;
 }

@@ -33,8 +33,9 @@ Fluxo de uma chamada:
    nome aleatório `nexus-call-<12 hex>` — e assina um JWT LiveKit **válido só para essa room**,
    com identidade = id do usuário.
 4. Cliente conecta direto no LiveKit com esse token.
-5. LiveKit avisa o servidor por webhook (`participant_left`, `room_finished`) quando alguém cai;
-   o servidor também remove participantes cujo gateway caiu há mais de 45 s.
+5. LiveKit avisa o servidor por webhook (`participant_left`, `room_finished`) quando alguém cai,
+   e `participant_joined` reconcilia quem o LiveKit reconectou sozinho; o servidor também remove
+   participantes cujo gateway caiu há mais de 45 s.
 
 Calls de conversas diferentes são rooms diferentes: Grupo A (João, Pedro, Lucas) e Grupo B
 (Carlos, Marcos) falam ao mesmo tempo sem nenhuma interferência — testado em
