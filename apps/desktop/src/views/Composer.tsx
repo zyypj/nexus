@@ -1,5 +1,5 @@
 import { MAX_ATTACHMENTS, MAX_MESSAGE_LENGTH, type Id, Permissions, hasPermission } from "@nexus/protocol";
-import { decodeMentions, formatBytes, mentionsToText } from "@nexus/shared";
+import { conversationTitle, decodeMentions, formatBytes, mentionsToText } from "@nexus/shared";
 import { type ClipboardEvent, useEffect, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import { client, useNexus } from "../lib/nexus";
@@ -46,6 +46,12 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
     reply ? mentionsToText(s, s.conversations[conversationId]?.server_id, reply.content) : "",
   );
   const mentions = useMentions(conversationId, ref, text, setText);
+  const placeholder = useNexus((s) => {
+    const c = s.conversations[conversationId];
+    if (!c) return "Escreva uma mensagem";
+    if (c.kind === "text") return `Mensagem em #${c.name}`;
+    return `Mensagem para ${c.kind === "dm" ? "@" : ""}${conversationTitle(s, c)}`;
+  });
   const lastOwn = useNexus((s) => {
     const items = s.messages[conversationId]?.items ?? [];
     for (let i = items.length - 1; i >= 0; i--) {
@@ -222,61 +228,71 @@ export function Composer({ conversationId, replyTo, onClearReply, dropped, onDro
           </button>
         </div>
       ) : (
-      <div className="composer-row">
-        {canAttach && (
-          <button type="button" className="icon-btn" title="Anexar arquivo" onClick={() => fileInput.current?.click()}>
-            <Icon name="paperclip" />
+      <div className="composer-box">
+        <div className="composer-row">
+          <textarea
+            ref={ref}
+            rows={1}
+            value={text}
+            placeholder={placeholder}
+            maxLength={MAX_MESSAGE_LENGTH}
+            onPaste={onPaste}
+            onChange={(e) => {
+              setText(e.target.value);
+              mentions.sync(e.target.value);
+              if (e.target.value) client().typing(conversationId);
+              else client().stopTyping(conversationId);
+            }}
+            onSelect={() => mentions.sync()}
+            onBlur={() => mentions.close()}
+            onKeyDown={(e) => {
+              if (mentions.onKeyDown(e)) return;
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void send();
+              } else if (e.key === "ArrowUp" && !text && lastOwn) {
+                // Quick edit of the last own message.
+                e.preventDefault();
+                const next = prompt("Editar mensagem", decodeMentions(client().store.getState(), conversationId, lastOwn.content));
+                const encoded = next === null ? null : mentions.encode(next.trim());
+                if (encoded !== null && encoded !== lastOwn.content)
+                  void client().editMessage(conversationId, lastOwn.id, encoded);
+              } else if (e.key === "Escape" && replyTo) onClearReply();
+            }}
+          />
+        </div>
+        <div className="composer-tools">
+          {canAttach && (
+            <>
+              <button type="button" className="icon-btn small" title="Anexar arquivo" onClick={() => fileInput.current?.click()}>
+                <Icon name="paperclip" size={17} />
+              </button>
+              <button type="button" className="icon-btn small" title="Gravar mensagem de voz" onClick={() => void startVoice()}>
+                <Icon name="mic" size={17} />
+              </button>
+            </>
+          )}
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              if (e.target.files) addFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <span className="composer-hint">Enter para enviar · Shift+Enter quebra a linha</span>
+          <button
+            type="button"
+            className="composer-send"
+            title="Enviar"
+            disabled={!text.trim() && files.length === 0}
+            onClick={() => void send()}
+          >
+            <Icon name="send" size={16} />
           </button>
-        )}
-        <input
-          ref={fileInput}
-          type="file"
-          multiple
-          hidden
-          onChange={(e) => {
-            if (e.target.files) addFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
-        <textarea
-          ref={ref}
-          rows={1}
-          value={text}
-          placeholder="Escreva uma mensagem"
-          maxLength={MAX_MESSAGE_LENGTH}
-          onPaste={onPaste}
-          onChange={(e) => {
-            setText(e.target.value);
-            mentions.sync(e.target.value);
-            if (e.target.value) client().typing(conversationId);
-            else client().stopTyping(conversationId);
-          }}
-          onSelect={() => mentions.sync()}
-          onBlur={() => mentions.close()}
-          onKeyDown={(e) => {
-            if (mentions.onKeyDown(e)) return;
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            } else if (e.key === "ArrowUp" && !text && lastOwn) {
-              // Quick edit of the last own message.
-              e.preventDefault();
-              const next = prompt("Editar mensagem", decodeMentions(client().store.getState(), conversationId, lastOwn.content));
-              const encoded = next === null ? null : mentions.encode(next.trim());
-              if (encoded !== null && encoded !== lastOwn.content)
-                void client().editMessage(conversationId, lastOwn.id, encoded);
-            } else if (e.key === "Escape" && replyTo) onClearReply();
-          }}
-        />
-        {!text.trim() && files.length === 0 && canAttach ? (
-          <button type="button" className="icon-btn" title="Gravar mensagem de voz" onClick={() => void startVoice()}>
-            <Icon name="mic" />
-          </button>
-        ) : (
-          <button type="button" className="icon-btn" title="Enviar" onClick={() => void send()}>
-            <Icon name="send" />
-          </button>
-        )}
+        </div>
       </div>
       )}
     </div>

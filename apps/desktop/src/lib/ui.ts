@@ -79,12 +79,12 @@ export const ROLE_COLORS = [
 
 export const colorHex = (c: number): string => `#${c.toString(16).padStart(6, "0")}`;
 
-/** Stable gradient for a server without an icon. */
+/** Stable muted color for a server without an icon. */
 export function serverGradient(id: string): string {
   let h = 0;
   for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   const a = h % 360;
-  return `linear-gradient(135deg, hsl(${a} 70% 58%), hsl(${(a + 50) % 360} 72% 48%))`;
+  return `hsl(${a} 20% 27%)`;
 }
 
 export function initials(name: string): string {

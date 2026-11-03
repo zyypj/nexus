@@ -1,4 +1,4 @@
-import { ICON_PATHS, type IconName } from "@nexus/ui";
+import { ICON_PATHS, ICON_ROTATION, type IconName } from "@nexus/ui";
 
 export type { IconName };
 
@@ -16,7 +16,7 @@ export function Icon({ name, size = 18, className }: { name: IconName; size?: nu
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d={ICON_PATHS[name]} />
+      <path d={ICON_PATHS[name]} transform={ICON_ROTATION[name] ? `rotate(${ICON_ROTATION[name]} 12 12)` : undefined} />
     </svg>
   );
 }

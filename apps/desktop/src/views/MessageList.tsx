@@ -198,7 +198,7 @@ const MessageItem = memo(function MessageItem({
     >
       {!compact && (
         <button type="button" className="author-avatar" onClick={authorProfile} onContextMenu={authorMenu} aria-label="Ver perfil">
-          <Avatar user={author} size={38} />
+          <Avatar user={author} size={40} />
         </button>
       )}
       {compact && <time className="gutter-time">{formatTime(m.created_at)}</time>}
@@ -471,11 +471,14 @@ function AttachmentView({ a }: { a: Attachment }) {
   if (kind === "audio" || kind === "voice") return <AudioPlayer a={a} url={url} voice={kind === "voice"} />;
   return (
     <button type="button" className="attachment-file" onClick={() => void openExternal(url)}>
-      <Icon name="file" size={28} />
+      <span className="attachment-file-icon">
+        <Icon name="file" size={20} />
+      </span>
       <span>
         <strong>{a.file_name}</strong>
         <small>{formatBytes(a.size)}</small>
       </span>
+      <Icon name="download" size={18} className="attachment-file-dl" />
     </button>
   );
 }

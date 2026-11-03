@@ -60,114 +60,135 @@ export function ChatView({ conversationId }: { conversationId: Id }) {
     if (video) await calls.setCamera(true);
   };
 
+  const subtitle =
+    conv.kind === "text"
+      ? conv.topic || ""
+      : conv.kind === "voice"
+        ? `Canal de voz${server ? ` · ${server.name}` : ""}`
+        : conv.kind === "group"
+          ? `${conv.members.length} membros`
+          : presence === "online"
+            ? "Online"
+            : presence === "idle"
+              ? "Ausente"
+              : presence === "dnd"
+                ? "Não perturbe"
+                : "Offline";
+  const aside =
+    showMembers && conv.kind === "group" ? (
+      <GroupMembers conversationId={conversationId} />
+    ) : server && conv.kind === "text" && showServerMembers ? (
+      <MemberList server={server} />
+    ) : null;
+
   return (
     <section className={`chat${inThisCall && callExpanded ? " call-expanded" : ""}`}>
-      <header className="header">
-        {conv.kind === "dm" ? (
-          <Avatar user={peerUser ?? peer} size={28} presence={presence} />
-        ) : (
-          <Icon name={conv.kind === "voice" ? "volume" : "hash"} />
-        )}
-        <h2>{title}</h2>
-        {conv.kind === "group" && <small className="muted">{conv.members.length} membros</small>}
-        {conv.kind === "text" && conv.topic && (
-          <>
-            <span className="header-sep" />
-            <small className="muted header-topic" title={conv.topic}>
-              {conv.topic}
-            </small>
-          </>
-        )}
-        <div className="header-actions">
-          {conv.kind === "text" && <MemberListToggle />}
-          {callsEnabled && !channel && !inThisCall && !blocked && (
-            <>
-              <button type="button" className="icon-btn" title="Chamada de voz" onClick={() => void startCall(false)}>
-                <Icon name="phone" />
-              </button>
-              <button type="button" className="icon-btn" title="Chamada de vídeo" onClick={() => void startCall(true)}>
-                <Icon name="video" />
-              </button>
-            </>
-          )}
-          {conv.kind === "group" && (
-            <button
-              type="button"
-              className={`icon-btn${showMembers ? " on" : ""}`}
-              title="Membros"
-              onClick={() => setShowMembers((v) => !v)}
-            >
-              <Icon name="users" />
-            </button>
-          )}
-        </div>
-      </header>
-
-      {conv.kind === "voice" ? (
-        inThisCall ? (
-          <CallPanel solo />
-        ) : (
-          <VoiceLobby channel={conv} />
-        )
-      ) : inThisCall ? (
-        <CallPanel />
-      ) : (
-        activeCall &&
-        activeCall.participants.length > 0 && (
-          <div className="join-bar">
-            <span>
-              Chamada em andamento · {activeCall.participants.length}{" "}
-              {activeCall.participants.length === 1 ? "pessoa" : "pessoas"}
-            </span>
-            <button type="button" className="btn primary small" onClick={() => void calls.join(activeCall.id)}>
-              Entrar
-            </button>
-          </div>
-        )
-      )}
-
-      {conv.kind !== "voice" && (
-      <div className="chat-body">
-        <div
-          className="chat-column"
-          onDragEnter={onDragEnter}
-          onDragOver={(e) => {
-            if (hasFiles(e)) e.preventDefault();
-          }}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
-        >
-          {dragging && !blocked && (
-            <div className="drop-overlay">
-              <div className="drop-card">
-                <Icon name="paperclip" size={28} />
-                <strong>Solte para enviar</strong>
-                <span>em {title}</span>
-              </div>
-            </div>
-          )}
-          <MessageList conversationId={conversationId} onReply={setReplyTo} />
-          <TypingIndicator conversationId={conversationId} />
-          {blocked ? (
-            <div className="composer disabled">Você bloqueou este usuário.</div>
-          ) : !canSend ? (
-            <div className="composer disabled">
-              <Icon name="lock" size={14} /> Você não tem permissão para enviar mensagens em #{conv.name}.
-            </div>
+      <div className="chat-main">
+        <header className="header">
+          {conv.kind === "dm" ? (
+            <Avatar user={peerUser ?? peer} size={34} presence={presence} />
           ) : (
-            <Composer
-              conversationId={conversationId}
-              replyTo={replyTo}
-              onClearReply={() => setReplyTo(null)}
-              dropped={dropped}
-              onDroppedTaken={() => setDropped(null)}
-            />
+            <span className="header-icon">
+              <Icon name={conv.kind === "voice" ? "volume" : "hash"} size={18} />
+            </span>
           )}
-        </div>
-        {showMembers && conv.kind === "group" && <GroupMembers conversationId={conversationId} />}
-        {server && conv.kind === "text" && showServerMembers && <MemberList server={server} />}
+          <div className="header-titles">
+            <h2>{title}</h2>
+            {subtitle && (
+              <small className="header-topic" title={subtitle}>
+                {subtitle}
+              </small>
+            )}
+          </div>
+          <div className="header-actions">
+            {callsEnabled && !channel && !inThisCall && !blocked && (
+              <>
+                <button type="button" className="icon-btn" title="Chamada de voz" onClick={() => void startCall(false)}>
+                  <Icon name="phone" />
+                </button>
+                <button type="button" className="icon-btn" title="Chamada de vídeo" onClick={() => void startCall(true)}>
+                  <Icon name="video" />
+                </button>
+              </>
+            )}
+            {conv.kind === "text" && <MemberListToggle />}
+            {conv.kind === "group" && (
+              <button
+                type="button"
+                className={`icon-btn${showMembers ? " on" : ""}`}
+                title="Membros"
+                onClick={() => setShowMembers((v) => !v)}
+              >
+                <Icon name="users" />
+              </button>
+            )}
+          </div>
+        </header>
+
+        {conv.kind === "voice" ? (
+          inThisCall ? (
+            <CallPanel solo />
+          ) : (
+            <VoiceLobby channel={conv} />
+          )
+        ) : inThisCall ? (
+          <CallPanel />
+        ) : null}
+
+        {conv.kind !== "voice" && (
+          <div
+            className="chat-column"
+            onDragEnter={onDragEnter}
+            onDragOver={(e) => {
+              if (hasFiles(e)) e.preventDefault();
+            }}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+          >
+            {dragging && !blocked && (
+              <div className="drop-overlay">
+                <div className="drop-card">
+                  <Icon name="paperclip" size={28} />
+                  <strong>Solte para enviar</strong>
+                  <span>em {title}</span>
+                </div>
+              </div>
+            )}
+            {!inThisCall && activeCall && activeCall.participants.length > 0 && (
+              <div className="join-bar">
+                <Icon name="volume" size={18} />
+                <span className="join-bar-text">
+                  <strong>Chamada em andamento</strong>
+                  <small>
+                    {activeCall.participants.length} {activeCall.participants.length === 1 ? "pessoa" : "pessoas"} na chamada
+                  </small>
+                </span>
+                <button type="button" className="btn primary small" onClick={() => void calls.join(activeCall.id)}>
+                  Entrar
+                </button>
+              </div>
+            )}
+            <MessageList conversationId={conversationId} onReply={setReplyTo} />
+            <TypingIndicator conversationId={conversationId} />
+            {blocked ? (
+              <div className="composer disabled">Você bloqueou este usuário.</div>
+            ) : !canSend ? (
+              <div className="composer disabled">
+                <Icon name="lock" size={14} /> Você não tem permissão para enviar mensagens em #{conv.name}.
+              </div>
+            ) : (
+              <Composer
+                conversationId={conversationId}
+                replyTo={replyTo}
+                onClearReply={() => setReplyTo(null)}
+                dropped={dropped}
+                onDroppedTaken={() => setDropped(null)}
+              />
+            )}
+          </div>
+        )}
       </div>
-      )}
+      {aside}
     </section>
   );
 }
@@ -182,11 +203,7 @@ function TypingIndicator({ conversationId }: { conversationId: Id }) {
     <div className="typing" aria-live="polite">
       {names && (
         <>
-          <span className="dots">
-            <i />
-            <i />
-            <i />
-          </span>
+          <span className="typing-dot" />
           {names} {names.includes(",") ? "estão digitando…" : "está digitando…"}
         </>
       )}

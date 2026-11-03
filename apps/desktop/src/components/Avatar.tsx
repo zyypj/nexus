@@ -23,7 +23,7 @@ export const Avatar = memo(function Avatar({ user, size = 36, presence, speaking
       {url ? (
         <img src={url} alt="" loading="lazy" decoding="async" width={size} height={size} />
       ) : (
-        <span className="avatar-fallback" style={{ background: `hsl(${hue} 45% 32%)` }}>
+        <span className="avatar-fallback" style={{ background: `hsl(${hue} 16% 38%)` }}>
           {initials(name)}
         </span>
       )}

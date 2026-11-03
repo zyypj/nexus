@@ -5,6 +5,8 @@ import { Avatar } from "../components/Avatar";
 import { type MenuEntry, openContextMenu, openMenuAt } from "../components/ContextMenu";
 import { streamVolumeEntry, volumeEntry } from "../components/UserVolume";
 import { Icon } from "../components/Icon";
+import { hueFor } from "@nexus/shared";
+import { openScreenShare } from "../lib/dialogs";
 import { client, useNexus } from "../lib/nexus";
 import { isTauri, setWindowFullscreen } from "../lib/platform";
 import { useUi } from "../lib/ui";
@@ -29,7 +31,8 @@ interface TileProps {
   onFullscreen: (on: boolean) => void;
 }
 
-const GRID_GAP = 8;
+/** Same as the `.call-grid` gap in layout.css. */
+const GRID_GAP = 10;
 /** Fullscreen hides the pointer and the controls after this long without moving. */
 const IDLE_MS = 3000;
 
@@ -159,48 +162,50 @@ export function CallPanel({ solo = false }: { solo?: boolean }) {
       ) : (
         <StageGrid tiles={tiles} tileProps={tileProps} />
       )}
-      <div className="stage-bar">
-        {full && <CallControls />}
+      <CallBar
+        info={
+          (screenNotice || screenQuality) && (
+            <>
+              {screenQuality && <span>Transmitindo em {screenQuality}</span>}
+              {screenNotice && <span className="warn">{screenNotice}</span>}
+            </>
+          )
+        }
+      >
         {focused && (
-          <button type="button" className="icon-btn" title="Ver todos em grade" onClick={() => setCallUi({ focus: null })}>
-            <Icon name="grid" />
+          <button type="button" className="call-bar-mini" title="Ver todos em grade" onClick={() => setCallUi({ focus: null })}>
+            <Icon name="grid" size={18} />
           </button>
         )}
         {focused && others.length > 0 && (
           <button
             type="button"
-            className={`icon-btn${strip ? " on" : ""}`}
+            className={`call-bar-mini${strip ? " on" : ""}`}
             title={strip ? "Ocultar miniaturas" : "Mostrar miniaturas"}
             onClick={() => setStrip((v) => !v)}
           >
-            <Icon name="users" />
+            <Icon name="users" size={18} />
           </button>
         )}
         {!solo && !full && (
           <button
             type="button"
-            className={`icon-btn${expanded ? "" : " on"}`}
+            className={`call-bar-mini${expanded ? "" : " on"}`}
             title={expanded ? "Mostrar chat" : "Ocultar chat"}
             onClick={() => setCallUi({ stageExpanded: !expanded })}
           >
-            <Icon name="message" />
+            <Icon name="message" size={18} />
           </button>
         )}
         <button
           type="button"
-          className="icon-btn"
+          className="call-bar-mini"
           title={full ? "Sair da tela cheia (Esc)" : "Tela cheia"}
           onClick={() => setFullscreen(!full)}
         >
-          <Icon name={full ? "minimize" : "maximize"} />
+          <Icon name={full ? "minimize" : "maximize"} size={18} />
         </button>
-      </div>
-      {(screenNotice || screenQuality) && (
-        <div className="screen-info">
-          {screenQuality && <span>Transmitindo em {screenQuality}</span>}
-          {screenNotice && <span className="warn">{screenNotice}</span>}
-        </div>
-      )}
+      </CallBar>
       {resizable && (
         <div
           className={`call-resize${dragSize !== null ? " dragging" : ""}`}
@@ -240,42 +245,57 @@ function StageGrid({ tiles, tileProps }: { tiles: StageTile[]; tileProps: (t: St
   );
 }
 
-/** Mic, sound, camera and hang up: in fullscreen the sidebar controls are covered. */
-function CallControls() {
+/**
+ * Discord-style control bar under the stage: status on the left, mic / sound /
+ * camera / screen / hang up in the middle, layout buttons (`children`) on the right.
+ */
+function CallBar({ info, children }: { info: React.ReactNode; children: React.ReactNode }) {
   const muted = useCall((s) => s.muted);
   const deafened = useCall((s) => s.deafened);
   const cameraOn = useCall((s) => s.cameraOn);
+  const screenOn = useCall((s) => s.screenOn);
   return (
-    <>
-      <button
-        type="button"
-        className={`icon-btn${muted ? " danger" : ""}`}
-        title={muted ? "Ativar microfone" : "Silenciar microfone"}
-        onClick={() => void calls.toggleMute()}
-      >
-        <Icon name={muted ? "micOff" : "mic"} />
-      </button>
-      <button
-        type="button"
-        className={`icon-btn${deafened ? " danger" : ""}`}
-        title={deafened ? "Ativar som" : "Desativar som"}
-        onClick={() => void calls.toggleDeafen()}
-      >
-        <Icon name={deafened ? "headphonesOff" : "headphones"} />
-      </button>
-      <button
-        type="button"
-        className={`icon-btn${cameraOn ? " on" : ""}`}
-        title={cameraOn ? "Desligar câmera" : "Ligar câmera"}
-        onClick={() => void calls.setCamera(!cameraOn)}
-      >
-        <Icon name={cameraOn ? "video" : "videoOff"} />
-      </button>
-      <button type="button" className="icon-btn danger" title="Sair da chamada" onClick={() => void calls.leave()}>
-        <Icon name="phoneOff" />
-      </button>
-      <span className="stage-bar-sep" />
-    </>
+    <div className="call-bar">
+      <div className="call-bar-side">{info}</div>
+      <div className="call-bar-main">
+        <button
+          type="button"
+          className={`call-btn${muted ? " off" : ""}`}
+          title={muted ? "Ativar microfone" : "Silenciar microfone"}
+          onClick={() => void calls.toggleMute()}
+        >
+          <Icon name={muted ? "micOff" : "mic"} size={20} />
+        </button>
+        <button
+          type="button"
+          className={`call-btn${deafened ? " off" : ""}`}
+          title={deafened ? "Ativar som" : "Desativar som"}
+          onClick={() => void calls.toggleDeafen()}
+        >
+          <Icon name={deafened ? "headphonesOff" : "headphones"} size={20} />
+        </button>
+        <button
+          type="button"
+          className={`call-btn${cameraOn ? " on" : ""}`}
+          title={cameraOn ? "Desligar câmera" : "Ligar câmera"}
+          onClick={() => void calls.setCamera(!cameraOn)}
+        >
+          <Icon name={cameraOn ? "video" : "videoOff"} size={20} />
+        </button>
+        <button
+          type="button"
+          className={`call-btn${screenOn ? " on" : ""}`}
+          title={screenOn ? "Opções da transmissão" : "Compartilhar tela"}
+          onClick={(e) => (screenOn ? openMenuAt(e.currentTarget, streamMenu) : openScreenShare())}
+        >
+          <Icon name="screen" size={20} />
+        </button>
+        <button type="button" className="call-btn leave" title="Sair da chamada" onClick={() => void calls.leave()}>
+          <Icon name="hangup" size={20} />
+        </button>
+      </div>
+      <div className="call-bar-side right">{children}</div>
+    </div>
   );
 }
 
@@ -323,6 +343,8 @@ function Tile({
   const avatar = user ?? { id: p.identity, display_name: p.name, avatar_url: null };
   const speaking = p.speaking && !p.micMuted;
   const inFull = big && full;
+  // Without video the tile takes a dark tint of the person's color (Discord style).
+  const tint = showVideo ? undefined : `hsl(${hueFor(p.identity)} 12% ${screen ? 11 : 16}%)`;
 
   const onContextMenu = (e: React.MouseEvent) => {
     const at = { x: e.clientX, y: e.clientY };
@@ -368,7 +390,7 @@ function Tile({
   return (
     <div
       className={cls.filter(Boolean).join(" ")}
-      style={style}
+      style={tint ? { ...style, background: tint } : style}
       onClick={big ? undefined : onPick}
       onDoubleClick={big ? () => onFullscreen(!full) : undefined}
       onContextMenu={onContextMenu}
@@ -377,11 +399,11 @@ function Tile({
         <video ref={ref} autoPlay playsInline muted className={!screen && p.isLocal ? "mirror" : ""} />
       ) : screen ? (
         <div className="tile-watch">
-          <Avatar user={avatar} size={big ? 96 : 40} />
+          <Avatar user={avatar} size={big ? 88 : 48} />
           <span className="tile-watch-btn">Assistir</span>
         </div>
       ) : (
-        <Avatar user={avatar} size={big ? 128 : 64} speaking={speaking} />
+        <Avatar user={avatar} size={big ? 120 : 80} speaking={speaking} />
       )}
       {screen && live && !p.isLocal && <RemoteControlSurface ownerId={p.identity} video={ref} />}
       {screen && <span className="tile-live">Ao vivo</span>}

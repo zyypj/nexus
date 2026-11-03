@@ -27,16 +27,33 @@ export function ServerSidebar({ serverId }: { serverId: Id }) {
   );
   const active = useNexus((s) => s.activeConversationId);
   const [menu, setMenu] = useState(false);
+  const [filter, setFilter] = useState("");
+  const query = filter.trim().toLowerCase();
+  const shownGroups = useMemo(
+    () =>
+      query
+        ? groups
+            .map((g) => ({ ...g, channels: g.channels.filter((c) => (c.name ?? "").toLowerCase().includes(query)) }))
+            .filter((g) => g.channels.length > 0)
+        : groups,
+    [groups, query],
+  );
   if (!server) return null;
   const perms = server.permissions;
   const canChannels = hasPermission(perms, Permissions.MANAGE_CHANNELS);
   const isOwner = server.owner_id === client().store.getState().me?.id;
+  const count = server.members.length;
 
   return (
     <>
       <header className="server-header">
         <button type="button" className="server-header-btn" onClick={() => setMenu((m) => !m)} aria-expanded={menu}>
-          <strong>{server.name}</strong>
+          <span className="server-header-names">
+            <strong>{server.name}</strong>
+            <small>
+              Servidor privado · {count} {count === 1 ? "membro" : "membros"}
+            </small>
+          </span>
           <Icon name={menu ? "x" : "chevronDown"} size={16} />
         </button>
         {menu && (
@@ -68,19 +85,36 @@ export function ServerSidebar({ serverId }: { serverId: Id }) {
           />
         )}
       </header>
+      <div className="channel-filter">
+        <Icon name="search" size={15} />
+        <input
+          value={filter}
+          placeholder="Encontrar canal"
+          aria-label="Encontrar canal"
+          onChange={(e) => setFilter(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && setFilter("")}
+        />
+        {filter && (
+          <button type="button" className="icon-btn tiny" title="Limpar" onClick={() => setFilter("")}>
+            <Icon name="x" size={13} />
+          </button>
+        )}
+      </div>
       <nav className="sidebar-scroll channel-list">
-        {groups.map((g) => (
+        {shownGroups.map((g) => (
           <ChannelCategory
             key={g.category?.id ?? "none"}
             serverId={serverId}
             group={g}
             active={active}
             canManage={canChannels}
+            forceOpen={!!query}
             onCreate={(type) => openDialog({ kind: "channel", serverId, categoryId: g.category?.id ?? null, type })}
             onEdit={(channelId) => openDialog({ kind: "channelSettings", serverId, channelId })}
           />
         ))}
-        {groups.every((g) => g.channels.length === 0) && (
+        {query && shownGroups.length === 0 && <p className="empty-hint">Nenhum canal com “{filter.trim()}”.</p>}
+        {!query && groups.every((g) => g.channels.length === 0) && (
           <p className="empty-hint">Nenhum canal visível para você aqui.</p>
         )}
       </nav>
@@ -128,6 +162,7 @@ function ChannelCategory({
   group,
   active,
   canManage,
+  forceOpen,
   onCreate,
   onEdit,
 }: {
@@ -135,11 +170,13 @@ function ChannelCategory({
   group: ChannelGroup;
   active: Id | null;
   canManage: boolean;
+  /** Searching: every match is shown, collapsed or not. */
+  forceOpen: boolean;
   onCreate: (type: "text" | "voice") => void;
   onEdit: (id: Id) => void;
 }) {
   const id = group.category?.id;
-  const collapsed = useUi((s) => (id ? !!s.collapsed[id] : false));
+  const collapsed = useUi((s) => (id ? !!s.collapsed[id] : false)) && !forceOpen;
   // A collapsed category still shows the open channel and unread ones.
   const shown = collapsed ? group.channels.filter((c) => c.id === active || c.unread_count > 0) : group.channels;
   // Drag the header to reorder categories; drop a channel on it to move it here.
@@ -294,6 +331,7 @@ const VoiceChannel = memo(function VoiceChannel({
         >
           <Icon name={canConnect ? "volume" : "lock"} size={18} className="channel-icon" />
           <span className="channel-name">{channel.name}</span>
+          {!!call?.participants.length && <span className="count-badge">{call.participants.length}</span>}
         </button>
         {canManage && (
           <button type="button" className="icon-btn tiny channel-edit" title="Editar canal" onClick={() => onEdit(channel.id)}>

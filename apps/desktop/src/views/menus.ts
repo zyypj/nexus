@@ -247,7 +247,7 @@ export function channelMenu(channel: ConversationView): MenuEntry[] {
           void calls.start(channel.id);
         },
       },
-    voice && here && { label: "Sair do canal", icon: "phoneOff", danger: true, run: () => void calls.leave() },
+    voice && here && { label: "Sair do canal", icon: "hangup", danger: true, run: () => void calls.leave() },
     { separator: true },
     has(server, Permissions.CREATE_INVITE) && {
       label: "Convidar pessoas",

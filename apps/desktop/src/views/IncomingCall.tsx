@@ -54,7 +54,7 @@ export function IncomingCall() {
         <Icon name="phone" />
       </button>
       <button type="button" className="icon-btn danger" onClick={() => dismiss(ringing)} title="Recusar">
-        <Icon name="phoneOff" />
+        <Icon name="hangup" />
       </button>
     </div>
   );

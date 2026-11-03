@@ -106,6 +106,32 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
 
+## Não lançado — visual novo do desktop e chamada estilo Discord
+
+- **Visual 1.0 (só Windows)**: colunas planas (servidores · canais · chat · membros), grafite com
+  destaque verde-petróleo, avatares em quadrado arredondado. Paleta própria do desktop em
+  `apps/desktop/src/lib/theme.ts` (o Android continua com os tokens de `@nexus/ui`); estilos
+  novos em `apps/desktop/src/layout.css`, carregado por último. Sem blur, sem sombras grandes,
+  transições só de cor/opacidade.
+- **Lateral**: subtítulo "Servidor privado · N membros", busca "Encontrar canal" (filtra pelo
+  nome, abre categorias recolhidas), contador de pessoas nos canais de voz, card "Voz conectada"
+  com cronômetro (só o texto do tempo re-renderiza) e microfone/áudio/câmera/tela/sair.
+- **Chat**: cabeçalho com ícone, nome e tópico; composer em duas linhas ("Mensagem em #canal",
+  anexar, voz, enviar); arquivo em card com ícone de download; aviso de chamada em andamento como
+  card.
+- **Membros**: coluna de altura inteira com cabeçalho, card das salas de voz ocupadas ("Entrar na
+  sala") e status embaixo do nome ("Em Geral", "Compartilhando tela", presença).
+- **Chamada estilo Discord**: fundo escuro, blocos com a cor da pessoa e avatar redondo, borda
+  verde em quem fala, barra de controles centralizada embaixo (microfone, áudio, câmera, tela,
+  sair em vermelho) e botões de grade/miniaturas/chat/tela cheia à direita. Ícone de sair é o
+  telefone deitado (`hangup`), sem o traço.
+- Não feito: barra de título própria do mockup (continua a do Windows), ícones de fixar e
+  notificações (as funções não existem).
+
+Verificado: typecheck, testes do desktop, revisão visual no navegador (chamada com participantes
+simulados, pois o navegador interno bloqueia o microfone) e build release aberta pelo usuário.
+Não verificado: chamada real com áudio/vídeo no layout novo.
+
 ## 0.4.5 — menções (@) e badges estilo Discord
 
 Publicada em 2026-10-27 (workflow Release verde; `releases/latest/download/VERSION` e o
