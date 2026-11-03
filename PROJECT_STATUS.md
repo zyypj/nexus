@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Última atualização: 2026-10-27 (versão 0.4.5 publicada: menções com @, badges estilo Discord e número no ícone do app).
+Última atualização: 2026-11-03 (versão 1.0.0 publicada: visual novo do desktop e chamada estilo Discord).
 
 ## Fase atual
 
@@ -106,7 +106,12 @@ launchers e o servidor se atualizam sozinhos pelas releases.
 Não verificado ainda: CPU da captura nativa vs. o caminho antigo; sons e banner no Android em
 aparelho real; borda amarela do WGC (o app pede captura sem borda, depende do Windows).
 
-## Não lançado — visual novo do desktop e chamada estilo Discord
+## 1.0.0 — visual novo do desktop e chamada estilo Discord
+
+Publicada em 2026-11-03 (workflows Release, CI e Docker verdes; `releases/latest/download/VERSION`
+responde 1.0.0; instalador, `latest.json` assinado, APK, servidor Linux e eggs presentes).
+Só mudou o app Windows (o ícone novo `hangup` em `@nexus/ui` não é usado no Android); servidor
+e Android só trocaram o número da versão.
 
 - **Visual 1.0 (só Windows)**: colunas planas (servidores · canais · chat · membros), grafite com
   destaque verde-petróleo, avatares em quadrado arredondado. Paleta própria do desktop em
