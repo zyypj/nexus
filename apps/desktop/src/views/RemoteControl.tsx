@@ -20,6 +20,7 @@ export function RemoteControlCenter() {
   const users = useNexus((s) => s.users);
   const participants = useCall((s) => s.participants);
   const remote = useRemoteControl();
+  const surface = remote.sourceId?.startsWith("screen:") ? "tela" : "janela";
   const active = remote.shares.find((s) => s.owner_id === me && s.accepted);
   const pending = remote.offered && remote.shares.find((s) => s.owner_id === me && s.request_id && !s.accepted);
   const pendingUser = pending ? users[pending.controller_id ?? ""] : undefined;
@@ -64,7 +65,7 @@ export function RemoteControlCenter() {
   useEffect(() => {
     if (!pendingId) return;
     playSound("control_request");
-    void notify("Pedido de controle remoto", `${pendingName} quer controlar sua janela. Abra o Nexus para aceitar ou recusar.`,
+    void notify("Pedido de controle remoto", `${pendingName} quer controlar sua ${surface}. Abra o Nexus para aceitar ou recusar.`,
       useCall.getState().conversationId ?? undefined);
   }, [pendingId]);
   useEffect(() => { if (!screenOn && remote.offered) stopRemoteControl(); }, [screenOn, remote.offered]);
@@ -78,7 +79,7 @@ export function RemoteControlCenter() {
     </div>}
     {(remote.offered || controlling) && <div className="remote-banner" role="status">
       <span>{active
-        ? `${users[active.controller_id ?? ""]?.display_name ?? "Outro usuário"} tem controle da sua janela. ${remote.pausedMs > 0 ? "PAUSADO: você tem prioridade por 3 segundos." : "Esc encerra."}`
+        ? `${users[active.controller_id ?? ""]?.display_name ?? "Outro usuário"} tem controle da sua ${surface}. ${remote.pausedMs > 0 ? "PAUSADO: você tem prioridade por 3 segundos." : "Esc encerra."}`
         : controlling?.accepted ? "Controle autorizado. Ative o modo de controle na transmissão."
         : controlling ? "Solicitação enviada. Aguardando o dono aceitar." : "Solicitações de controle liberadas. Ninguém tem acesso sem seu aceite."}</span>
       <button className="btn danger" onClick={stopRemoteControl}>Encerrar controle e solicitações</button>
@@ -89,10 +90,12 @@ export function RemoteControlCenter() {
 }
 
 function Warning() {
+  const overHttp = useSession((s) => s.client?.api.baseUrl.startsWith("http:"));
   return <div className="remote-warning" role="note">
     <strong>PERIGO: controle remoto pode causar perda de arquivos, exposição de senhas e golpes.</strong>
     <p>Só permita a alguém que você conhece e confia. Confirme por voz quem está pedindo: nomes e fotos podem ser copiados. Não aceite pedidos de bancos ou de desconhecidos, nem aceite sob pressão.</p>
-    <p>A pessoa poderá agir dentro da janela e da área que você liberar, inclusive alterar dados ou enviar mensagens. Os bloqueios reduzem riscos, mas não tornam um aplicativo seguro. Feche documentos, contas e informações sensíveis antes de aceitar.</p>
+    <p>A pessoa poderá agir dentro da área que você liberar, inclusive alterar dados ou enviar mensagens. Feche documentos, contas e informações sensíveis antes de aceitar.</p>
+    {overHttp && <p><strong>Conexão HTTP sem criptografia.</strong> Alguém na rede pode interceptar ou adulterar comandos e dados da sessão. Use apenas em uma rede de confiança.</p>}
   </div>;
 }
 
@@ -103,7 +106,7 @@ function EnableControlDialog() {
     <div className="remote-dialog">
       <Warning />
       <p>Isso só permite pedir acesso. Você terá que aprovar a pessoa e escolher permissões a cada sessão, por até 5 minutos.</p>
-      <p>Somente a janela compartilhada pode receber entrada. Nexus, UAC, aplicativos administrativos, ferramentas do sistema e terminais são bloqueados. Transferência de arquivos, área de transferência e atalhos do sistema não são oferecidos.</p>
+      <p>O controle fica restrito à tela ou janela compartilhada e à área que você escolher. Nexus, UAC, aplicativos administrativos, ferramentas do sistema e terminais são bloqueados.</p>
       <label><input type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} /> Li e entendi os riscos. Vou acompanhar toda a sessão.</label>
       <button className="btn primary" disabled={!understood || busy} onClick={() => { setBusy(true); void offerControl(true).finally(() => setBusy(false)); }}>Liberar somente solicitações</button>
     </div>
@@ -112,6 +115,7 @@ function EnableControlDialog() {
 
 export function ConsentDialog({ share, name }: { share: ControlShare; name: string }) {
   const app = useCall((s) => s.screenSettings?.app?.name);
+  const monitor = useRemoteControl((s) => s.sourceId?.startsWith("screen:") === true);
   const [permissions, setPermissions] = useState<ControlCapabilities>({ ...NO_CONTROL });
   const [area, setArea] = useState({ x: 0, y: 0, width: 100, height: 100 });
   const [understood, setUnderstood] = useState(false);
@@ -122,20 +126,22 @@ export function ConsentDialog({ share, name }: { share: ControlShare; name: stri
     setBusy(true);
     void respondControl(share, accept, permissions, { x: area.x / 100, y: area.y / 100, width: area.width / 100, height: area.height / 100 }).finally(() => setBusy(false));
   };
-  return <Modal title={`${name} quer controlar sua janela`} onClose={() => respond(false)} wide>
+  return <Modal title={`${name} quer controlar sua ${monitor ? "tela" : "janela"}`} onClose={() => respond(false)} wide>
     <div className="remote-dialog">
       <Warning />
-      <p><strong>Quem:</strong> {name} · ID: <code>{share.controller_id}</code><br /><strong>Onde:</strong> somente a janela compartilhada de {app ?? "aplicativo"}, na área abaixo. Outras janelas e diálogos ficam bloqueados.</p>
+      <p><strong>Quem:</strong> {name} · ID: <code>{share.controller_id}</code><br /><strong>Onde:</strong> {monitor
+        ? "Aplicativos visíveis na área abaixo, dentro do monitor compartilhado. O controlador pode alternar entre eles com um clique."
+        : `Somente a janela compartilhada de ${app ?? "aplicativo"}, na área abaixo.`}</p>
       <fieldset><legend>O que esta pessoa pode fazer (tudo começa bloqueado)</legend>
         {(Object.keys(labels) as (keyof ControlCapabilities)[]).map((key) => <label key={key}>
           <input type="checkbox" checked={permissions[key]} onChange={(e) => setPermissions({ ...permissions, [key]: e.target.checked })} /> {labels[key]}
         </label>)}
-        <p>Cliques e rolagem posicionam o ponteiro no ponto escolhido, mesmo sem movimento livre. Menus, listas suspensas e janelas que o aplicativo abrir ficam bloqueados para quem controla: só você pode usá-los.</p>
+        <p>Cliques e rolagem posicionam o ponteiro no ponto escolhido, mesmo sem movimento livre. Menus do sistema e caixas de diálogo protegidas ficam sob seu controle local.</p>
       </fieldset>
       <fieldset><legend>Área permitida, em % da imagem compartilhada</legend>
-        <p>0, 0, 100, 100 permite toda a área interna da janela. A barra de título e as bordas ficam sempre bloqueadas. Este recorte limita entrada; quem assiste continua vendo toda a transmissão.</p>
+        <p>0, 0, 100, 100 cobre toda a {monitor ? "tela compartilhada" : "janela compartilhada"}. O controle atua na área interna dos aplicativos permitidos. Quem assiste continua vendo toda a transmissão.</p>
         <div className="remote-presets">
-          <button type="button" className="btn" onClick={() => setArea({ x: 0, y: 0, width: 100, height: 100 })}>Toda a janela</button>
+          <button type="button" className="btn" onClick={() => setArea({ x: 0, y: 0, width: 100, height: 100 })}>{monitor ? "Toda a tela" : "Toda a janela"}</button>
           <button type="button" className="btn" onClick={() => setArea({ x: 0, y: 0, width: 50, height: 100 })}>Metade esquerda</button>
           <button type="button" className="btn" onClick={() => setArea({ x: 50, y: 0, width: 50, height: 100 })}>Metade direita</button>
           <button type="button" className="btn" onClick={() => setArea({ x: 25, y: 25, width: 50, height: 50 })}>Somente o centro</button>
@@ -198,7 +204,7 @@ export function RemoteControlSurface({ ownerId, video }: { ownerId: string; vide
       onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); const p = point(e); if (p && e.button === 0 && share.permissions.click) void sendControlInput(ownerId, { kind: "click", ...p, button: 0 }); }} />}
     <div className="remote-controller" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       <button className="btn" onClick={() => setEnabled(!enabled)}>{enabled ? "Sair do modo de controle (Esc)" : "Entrar no modo de controle"}</button>
-      {enabled && <small>O dono deve deixar a janela em primeiro plano. Aguarde 3 segundos após ele usar mouse/teclado.</small>}
+      {enabled && <small>Use o aplicativo em primeiro plano para digitar ou rolar. Aguarde 3 segundos após o dono usar o mouse ou teclado.</small>}
       {enabled && share.permissions.text && <form onSubmit={(e) => { e.preventDefault(); if (text) { void sendControlInput(ownerId, { kind: "text", text }); setText(""); } }}>
         <input aria-label="Texto para digitar na janela autorizada" value={text} maxLength={16} onChange={(e) => setText(e.target.value.replace(/[\x00-\x1f\x7f-\x9f]/g, ""))} placeholder="Texto sem atalhos" />
         <button className="btn" disabled={!text}>Digitar</button>

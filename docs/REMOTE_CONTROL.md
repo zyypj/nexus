@@ -6,19 +6,20 @@ Não há acesso não supervisionado, senha permanente nem aceite automático.
 
 ## Uso
 
-1. Compartilhe **uma janela** pelo seletor nativo do Nexus no Windows. Compartilhar
-   um monitor ou usar o seletor do navegador permite assistir, mas não controlar.
+1. Compartilhe **uma tela inteira** ou **uma janela** pelo seletor nativo do Nexus no
+   Windows. O seletor do navegador oferece somente transmissão.
 2. No menu da transmissão, escolha **Liberar solicitações de controle** e leia o aviso.
-3. Quem assiste usa o botão direito na transmissão e escolhe **Solicitar controle da janela**.
+3. Quem assiste usa o botão direito na transmissão e escolhe **Solicitar controle remoto**.
    Em servidor, o cargo/canal precisa de `REQUEST_CONTROL`, além de acesso à chamada.
    Em DM/grupo privado não há essa exigência de cargo. O aceite do dono sempre é obrigatório.
 4. O dono confere nome, usuário e ID e escolhe separadamente movimento, cliques,
    rolagem e texto. Todas as opções começam desmarcadas. Pode delimitar a área por
    porcentagens ou usar os atalhos de metade esquerda, metade direita e centro.
    O retângulo limita **entrada**, não recorta o vídeo que as pessoas assistem.
-5. O controlador ativa **Entrar no modo de controle**. O dono coloca a janela
-   autorizada em primeiro plano e aguarda três segundos após seu último movimento/tecla.
-   O modo é desativado no controlador quando sua janela perde foco.
+5. O controlador ativa **Entrar no modo de controle** e aguarda três segundos após o
+   último movimento ou tecla do dono. Em tela inteira, um clique pode alternar entre
+   aplicativos visíveis dentro da área permitida. Para rolar ou digitar, o aplicativo
+   precisa estar em primeiro plano. Em modo janela, o dono põe a janela em primeiro plano.
 6. **Esc**, fechar/clicar na barra nativa de emergência ou **Encerrar controle e
    solicitações** revogam o acesso. Para mudar permissões/área, encerre e aprove novamente.
 
@@ -58,20 +59,16 @@ Não há acesso não supervisionado, senha permanente nem aceite automático.
   nova uma ida e volta depois), nunca uma anterior ao último uso local ou à revogação. Isso
   limita a idade de um pacote a cerca de dois heartbeats sem perder cliques legítimos.
   Sequências crescentes impedem repetição/reordenação.
-- Defesa nativa antes de cada lote de entrada e novamente nos hooks: janela
-  selecionada em primeiro plano, área interna e autorizada, nenhuma outra janela
-  sobre o ponto de entrada. A barra de título, as bordas, menus externos e outros
-  diálogos não recebem controle. PID e criação do processo são conferidos a cada comando;
-  a checagem completa do processo (lista de bloqueio, elevação, árvore do Nexus) roda no início
-  e depois no máximo uma vez por segundo.
+- O Windows verifica a área autorizada e a janela de destino antes de cada lote de entrada
+  e novamente nos hooks. No modo janela, a janela escolhida precisa estar em primeiro plano.
+  No modo tela inteira, o monitor deve manter a identidade, a posição e as dimensões aprovadas.
+  Ao mudar de aplicativo, o Nexus verifica o novo processo antes de enviar entrada. Bordas,
+  barra de tarefas, menus do sistema e caixas de diálogo protegidas ficam sob controle local.
 - Sem execução elevada/UIAccess. Nexus e sua árvore de processos são proibidos,
   assim como Gerenciador de Tarefas, UAC, ferramentas de sistema e terminais
   conhecidos. Área de trabalho protegida também é bloqueada. Falhas de verificação negam entrada.
-- Não há API de arquivos, sincronização de clipboard, atalhos globais, teclas
-  mantidas ou arrastar. Só o botão esquerdo, em pares de pressionar/soltar: menus, listas
-  suspensas e janelas que o aplicativo abrir são janelas separadas e ficam bloqueadas para quem
-  controla (um clique direito abriria um menu inutilizável na tela do dono); digitação usa
-  Unicode imprimível, sem Enter/Tab/controles. Texto requer foco dentro da área
+- O controlador pode usar o botão esquerdo em pares de pressionar e soltar. A digitação usa
+  Unicode imprimível, sem Enter, Tab ou atalhos globais. Texto requer foco dentro da área
   autorizada; alguns aplicativos não aceitam esse modo restrito de digitação.
 - Botão de emergência numa janela Win32 separada, sempre no topo, que funciona
   sem depender do renderizador React. Fechar o Nexus para a bandeja encerra
@@ -79,13 +76,11 @@ Não há acesso não supervisionado, senha permanente nem aceite automático.
 
 ## Transporte e implantação
 
-O cliente exige HTTPS para comandos de controle fora de localhost; o servidor
-exige `NEXUS_PUBLIC_URL=https://...` (HTTP de loopback é permitido para desenvolvimento).
-Use TLS no servidor ou um proxy HTTPS confiável e impeça acesso externo à porta
-HTTP de origem. A URL pública configurada **não prova** que uma conexão chegou por
-TLS; o proxy/isolamento da porta continua sendo responsabilidade da implantação.
-Os comandos passam pelo servidor Nexus e não têm criptografia de ponta a ponta.
-O servidor e sua administração fazem parte da confiança da instalação.
+O controle remoto aceita HTTP e HTTPS, inclusive com servidores fora de localhost.
+O Nexus avisa antes da autorização quando a conexão local usa HTTP. Alguém na rede
+pode interceptar ou adulterar comandos e dados da sessão em HTTP. Use HTTPS fora
+de uma rede de confiança. Em HTTPS, o tráfego é criptografado até o servidor ou o
+proxy configurado. O servidor continua tendo acesso aos comandos.
 
 ## Limites de segurança
 
@@ -119,6 +114,8 @@ no navegador, incluindo autorização inicialmente desabilitada e área inválid
 **Ainda exige teste manual com dois PCs Windows antes de liberar em produção:**
 
 - WGC e `SendInput` reais, DPI 100/150/200%, múltiplos monitores e coordenadas negativas;
+- em tela inteira, alternar entre dois aplicativos visíveis e confirmar que a área escolhida,
+  o monitor vizinho e os aplicativos bloqueados não recebem ações fora do escopo;
 - owner move/click/scroll/keyboard durante entrada remota contínua: parar imediatamente
   e só voltar três segundos após a última entrada, sem reproduzir comandos antigos;
 - Esc, barra nativa e desconexão com Nexus minimizado/oculto, renderizador travado e rede interrompida;

@@ -31,17 +31,8 @@ let lastMove = 0;
 let pendingMove: { ownerId: string; input: ControlInput } | null = null;
 let moveTimer: ReturnType<typeof setTimeout> | null = null;
 
-export function controlTransportAllowed(baseUrl: string): boolean {
-  try {
-    const url = new URL(baseUrl);
-    return url.protocol === "https:" || (url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname));
-  } catch { return false; }
-}
-
 function command<T = unknown>(body: ControlCommand, callId = useCall.getState().callId): Promise<T> {
   if (!callId) return Promise.reject(new Error("Entre na chamada primeiro."));
-  if (body.action !== "stop" && !(body.action === "offer" && !body.enabled) && !controlTransportAllowed(client().api.baseUrl))
-    return Promise.reject(new Error("Controle remoto exige uma conexão HTTPS. HTTP só é permitido em localhost para desenvolvimento."));
   return client().api.request<T>("POST", `/api/calls/${callId}/remote-control`, body);
 }
 function error(e: unknown) { useRemoteControl.setState({ error: e instanceof Error ? e.message : String(e) }); }
@@ -69,8 +60,8 @@ export function setControlSource(sourceId: string | null) {
 
 export async function offerControl(enabled: boolean) {
   if (!enabled) { stopRemoteControl(); return; }
-  if (!isTauri || !useRemoteControl.getState().sourceId?.startsWith("window:")) {
-    error("Para liberar controle, compartilhe uma janela pelo seletor do Nexus no Windows."); return;
+  if (!isTauri || !useRemoteControl.getState().sourceId) {
+    error("Para liberar controle, compartilhe uma tela ou janela pelo seletor do Nexus no Windows."); return;
   }
   const gen = ++revision;
   try {

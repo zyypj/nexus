@@ -24,7 +24,7 @@ como, e onde está testado.
 ## Autorização
 
 - **Controle remoto assistido**: consentimento por pessoa/dispositivo, permissão de cargo/canal
-  para solicitar, restrições nativas de janela/área/ação e prioridade local. Não é sandbox:
+  para solicitar, restrições nativas de tela/janela, área e ação e prioridade local. Não é sandbox:
   operações perigosas dentro do aplicativo autorizado continuam possíveis. Testes entre dois
   PCs e revisão de segurança independente ainda pendentes. Ver [REMOTE_CONTROL.md](REMOTE_CONTROL.md).
 
@@ -82,9 +82,8 @@ query string, que contém assinaturas de URL), e tokens nunca aparecem em URLs.
 
 ## Transporte
 
-- Controle remoto exige HTTPS fora de localhost, mesmo quando a instalação usa HTTP para
-  chat/chamadas. Com proxy TLS, isole a porta HTTP de origem; configurar a URL pública não
-  verifica o transporte real da requisição.
+- Controle remoto aceita HTTP e HTTPS. O aceite mostra um aviso em HTTP, pois a rede pode
+  interceptar ou alterar comandos e dados da sessão. Com proxy TLS, isole a porta HTTP de origem.
 
 - Mídia WebRTC é sempre criptografada (DTLS-SRTP).
 - API: use HTTPS. Sem proxy reverso, o servidor pode terminar TLS sozinho

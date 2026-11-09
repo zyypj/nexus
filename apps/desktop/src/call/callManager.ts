@@ -822,7 +822,7 @@ export class CallManager {
       ? await this.startNativeScreen(opts.source, p, opts.motion)
       : await this.startBrowserScreen(p, opts.surface ?? "monitor", opts.motion);
     if (!started) return;
-    setControlSource(opts.source?.kind === "window" ? opts.source.id : null);
+    setControlSource(opts.source?.id ?? null);
     this.governor = governor;
     this.lastSent = null;
     const window = opts.source?.kind === "window" ? opts.source : undefined;

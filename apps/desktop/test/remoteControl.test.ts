@@ -3,10 +3,10 @@ const mocks = vi.hoisted(() => ({
   request: vi.fn(), invoke: vi.fn(),
   call: { callId: "call", status: "connected", screenOn: true },
 }));
-vi.mock("../src/lib/nexus", () => ({ client: () => ({ api: { request: mocks.request, baseUrl: "https://nexus.example" }, state: { me: { id: "owner" } } }) }));
+vi.mock("../src/lib/nexus", () => ({ client: () => ({ api: { request: mocks.request, baseUrl: "http://192.168.1.2:3000" }, state: { me: { id: "owner" } } }) }));
 vi.mock("../src/lib/platform", () => ({ invoke: mocks.invoke, isTauri: true }));
 vi.mock("../src/call/callStore", () => ({ useCall: { getState: () => mocks.call } }));
-import { NO_CONTROL, controlTransportAllowed, receiveControlInput, respondControl, sendControlInput, setControlSource, stopRemoteControl, syncRemoteControl, useRemoteControl, videoPoint } from "../src/call/remoteControl";
+import { NO_CONTROL, offerControl, receiveControlInput, respondControl, sendControlInput, setControlSource, stopRemoteControl, syncRemoteControl, useRemoteControl, videoPoint } from "../src/call/remoteControl";
 const share = { owner_id: "owner", controller_id: "controller", request_id: "request", accepted: true, expires_at: 9999999999999, permissions: { ...NO_CONTROL, pointer: true } };
 const packet = { call_id: "call", request_id: "request", sequence: 1, epoch: 2, input: { kind: "move" as const, x: 0.5, y: 0.5 } };
 
@@ -22,6 +22,17 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("native authorization boundary", () => {
+  it("offers and approves a shared monitor over a non-loopback HTTP connection", async () => {
+    setControlSource("screen:2");
+    await offerControl(true);
+    expect(useRemoteControl.getState().offered).toBe(true);
+    expect(mocks.request).toHaveBeenCalledWith("POST", "/api/calls/call/remote-control", { action: "offer", enabled: true });
+    const area = { x: 0.5, y: 0, width: 0.5, height: 1 };
+    await respondControl({ ...share, accepted: false }, true, share.permissions, area);
+    expect(mocks.invoke).toHaveBeenCalledWith("remote_control_start", {
+      sourceId: "screen:2", requestId: "request", permissions: share.permissions, area,
+    });
+  });
   it("does not forward packets for another call, grant, or stopped share", () => {
     receiveControlInput({ ...packet, call_id: "other" });
     receiveControlInput({ ...packet, request_id: "old" });
@@ -119,12 +130,6 @@ describe("traffic", () => {
 });
 
 describe("video coordinates", () => {
-  it("requires HTTPS outside loopback", () => {
-    expect(controlTransportAllowed("http://192.168.1.2:3000")).toBe(false);
-    expect(controlTransportAllowed("http://localhost.evil.example")).toBe(false);
-    expect(controlTransportAllowed("https://example.com")).toBe(true);
-    expect(controlTransportAllowed("http://127.0.0.1:3000")).toBe(true);
-  });
   it("rejects letterboxing and correctly maps negative monitor coordinates", () => {
     const r = { left: -100, top: 0, width: 200, height: 200 };
     expect(videoPoint(r, 200, 100, 0, 20)).toBeNull();

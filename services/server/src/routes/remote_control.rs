@@ -55,13 +55,6 @@ fn notify<'a>(state: &AppState, users: impl IntoIterator<Item = &'a str>, call_i
     state.hub.send(users, UPDATE, &json!({ "call_id": call_id }));
 }
 
-fn transport_configured(public_url: &str) -> bool {
-    reqwest::Url::parse(public_url).is_ok_and(|u| {
-        u.scheme() == "https"
-            || (u.scheme() == "http" && matches!(u.host_str(), Some("localhost" | "127.0.0.1" | "[::1]")))
-    })
-}
-
 pub fn revoke(state: &AppState, call: &str, user: Option<&str>) {
     let mut affected: Vec<String> = Vec::new();
     state
@@ -210,7 +203,7 @@ fn sweep(controls: &mut HashMap<(String, String), Share>, now: i64) {
 
 pub async fn status(State(state): State<AppState>, user: AuthUser, Path(id): Path<String>) -> ApiResult<Json<Value>> {
     let call = participants(&state, &id, &user).await?;
-    let allowed = transport_configured(&state.config.public_url) && can_request(&state, &call, &user.id).await.is_ok();
+    let allowed = can_request(&state, &call, &user.id).await.is_ok();
     let mut controls = state.controls.lock().unwrap_or_else(|e| e.into_inner());
     sweep(&mut controls, now_ms());
     let shares: Vec<_> = controls
@@ -233,13 +226,6 @@ pub async fn command(
     Path(id): Path<String>,
     ApiJson(cmd): ApiJson<Command>,
 ) -> ApiResult<Json<Value>> {
-    if !matches!(cmd, Command::Stop | Command::Offer { enabled: false })
-        && !transport_configured(&state.config.public_url)
-    {
-        return Err(ApiError::Forbidden(
-            "Configure NEXUS_PUBLIC_URL com HTTPS para controle remoto.",
-        ));
-    }
     state.limiter.check("remote", &user.id, Rule::per_second(40, 30))?;
     if let Command::Input {
         request_id,
@@ -287,7 +273,7 @@ pub async fn command(
     match cmd {
         Command::Offer { enabled: true } => {
             if !call.participants.iter().any(|p| p.user_id == user.id && p.screen) {
-                return Err(ApiError::Forbidden("Compartilhe uma janela primeiro."));
+                return Err(ApiError::Forbidden("Compartilhe uma tela ou janela primeiro."));
             }
             if controls.contains_key(&key) {
                 return Err(ApiError::Conflict("Desative o controle anterior primeiro."));
@@ -484,13 +470,6 @@ fn find_session<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn requires_https_outside_loopback() {
-        assert!(!transport_configured("http://192.168.1.2:3000"));
-        assert!(!transport_configured("http://localhost.evil.example"));
-        assert!(transport_configured("https://nexus.example"));
-        assert!(transport_configured("http://127.0.0.1:3000"));
-    }
     #[test]
     fn capability_and_payload_limits() {
         let all = Capabilities {

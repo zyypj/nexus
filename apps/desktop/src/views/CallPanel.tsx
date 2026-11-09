@@ -362,7 +362,7 @@ function Tile({
         { separator: true },
         ...layout,
         !p.isLocal && live && canRequestControl && !!controlShare && {
-          label: controlShare.request_id ? "Controle já solicitado ou em uso" : "Solicitar controle da janela…",
+          label: controlShare.request_id ? "Controle já solicitado ou em uso" : "Solicitar controle remoto…",
           icon: "screen", disabled: !!controlShare.request_id,
           run: () => void requestControl(p.identity),
         },

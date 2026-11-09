@@ -26,7 +26,7 @@ export function streamMenu(): MenuEntry[] {
       label: control.offered ? "Encerrar controle e solicitações" : "Liberar solicitações de controle…",
       icon: "screen",
       danger: control.offered,
-      disabled: !control.sourceId?.startsWith("window:"),
+      disabled: !control.sourceId,
       run: () => control.offered ? stopRemoteControl() : useRemoteControl.setState({ dialog: true }),
     },
     {

@@ -164,7 +164,7 @@ pub(crate) mod imp {
             Foundation::{CloseHandle, FILETIME, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
             Graphics::{
                 Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute},
-                Gdi::ClientToScreen,
+                Gdi::{ClientToScreen, GetMonitorInfoW, HMONITOR, MONITORINFO, MONITORINFOEXW},
             },
             Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation, TokenUIAccess},
             System::{
@@ -193,12 +193,50 @@ pub(crate) mod imp {
     static FLOOR: AtomicU64 = AtomicU64::new(1);
     static REVOCATION: AtomicU64 = AtomicU64::new(1);
     pub static OBSERVED_INPUT: AtomicU32 = AtomicU32::new(0);
-    static SOURCE: Mutex<Option<String>> = Mutex::new(None);
+    static SOURCE: Mutex<Option<SharedSource>> = Mutex::new(None);
     static SESSION: Mutex<Option<Session>> = Mutex::new(None);
-    struct Session {
-        hwnd: isize,
+    // A concurrent request must not change the route while Windows checks a batch.
+    static INJECTION: Mutex<()> = Mutex::new(());
+
+    #[derive(Clone, Copy)]
+    struct WindowTarget {
+        handle: isize,
         pid: u32,
         created: u64,
+    }
+    impl WindowTarget {
+        fn hwnd(self) -> HWND {
+            HWND(self.handle as *mut c_void)
+        }
+    }
+
+    #[derive(Clone, Copy, PartialEq)]
+    struct MonitorTarget {
+        handle: isize,
+        rect: RECT,
+        device: [u16; 32],
+    }
+
+    struct SharedSource {
+        id: String,
+        monitor: Option<MonitorTarget>,
+    }
+
+    struct MonitorRoute {
+        window: WindowTarget,
+        point: POINT,
+        epoch: u64,
+        foreground: bool,
+    }
+
+    enum Scope {
+        Window(WindowTarget),
+        Monitor(MonitorTarget),
+    }
+
+    struct Session {
+        scope: Scope,
+        monitor_route: Option<MonitorRoute>,
         request: String,
         permissions: Capabilities,
         area: Area,
@@ -234,7 +272,13 @@ pub(crate) mod imp {
     pub fn capture_source(source: Option<String>) {
         let mut current = SOURCE.lock().unwrap_or_else(|e| e.into_inner());
         stop();
-        *current = source;
+        *current = source.map(|id| {
+            let monitor = id
+                .strip_prefix("screen:")
+                .and_then(|raw| raw.parse().ok())
+                .and_then(monitor);
+            SharedSource { id, monitor }
+        });
     }
 
     // Called synchronously by the existing global hooks, before local input is dispatched.
@@ -254,15 +298,15 @@ pub(crate) mod imp {
     }
 
     /// Same window, same process (PID + creation time): cheap enough per input.
-    fn same_process(s: &Session) -> bool {
+    fn same_process(target: WindowTarget) -> bool {
         unsafe {
-            let window = hwnd(s);
+            let window = target.hwnd();
             if !IsWindow(Some(window)).as_bool() || !IsWindowVisible(window).as_bool() || IsIconic(window).as_bool() {
                 return false;
             }
             let mut pid = 0;
             GetWindowThreadProcessId(window, Some(&mut pid));
-            if pid != s.pid {
+            if pid != target.pid {
                 return false;
             }
             let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
@@ -271,7 +315,7 @@ pub(crate) mod imp {
             let process = OwnedHandle(process);
             let (mut created, mut exit, mut kernel, mut user) = Default::default();
             GetProcessTimes(process.0, &mut created, &mut exit, &mut kernel, &mut user).is_ok()
-                && filetime(created) == s.created
+                && filetime(created) == target.created
         }
     }
     fn filetime(t: FILETIME) -> u64 {
@@ -334,7 +378,7 @@ pub(crate) mod imp {
         }
         Ok(())
     }
-    fn identity(hwnd: HWND) -> Result<(u32, u64), String> {
+    fn identity(hwnd: HWND) -> Result<WindowTarget, String> {
         unsafe {
             if !IsWindow(Some(hwnd)).as_bool() || !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
                 return Err("Janela indisponível.".into());
@@ -361,6 +405,11 @@ pub(crate) mod imp {
                 "control",
                 "systemsettings",
                 "explorer",
+                "shellexperiencehost",
+                "startmenuexperiencehost",
+                "searchhost",
+                "textinputhost",
+                "credentialuibroker",
                 "rundll32",
                 "mshta",
                 "wscript",
@@ -384,47 +433,82 @@ pub(crate) mod imp {
             let mut kernel = FILETIME::default();
             let mut user = FILETIME::default();
             GetProcessTimes(process.0, &mut created, &mut exit, &mut kernel, &mut user).map_err(|e| e.to_string())?;
-            Ok((pid, filetime(created)))
+            Ok(WindowTarget {
+                handle: hwnd.0 as isize,
+                pid,
+                created: filetime(created),
+            })
         }
     }
-    fn hwnd(s: &Session) -> HWND {
-        HWND(s.hwnd as *mut c_void)
-    }
-    fn bounds(s: &Session) -> Option<RECT> {
-        let mut r = RECT::default();
+
+    fn monitor(handle: isize) -> Option<MonitorTarget> {
+        let mut info = MONITORINFOEXW::default();
+        info.monitorInfo.cbSize = size_of::<MONITORINFOEXW>() as u32;
         unsafe {
-            DwmGetWindowAttribute(
-                hwnd(s),
-                DWMWA_EXTENDED_FRAME_BOUNDS,
-                &mut r as *mut _ as *mut c_void,
-                size_of::<RECT>() as u32,
-            )
-            .ok()?;
+            GetMonitorInfoW(HMONITOR(handle as *mut c_void), &mut info as *mut _ as *mut MONITORINFO)
+                .as_bool()
+                .then_some(MonitorTarget {
+                    handle,
+                    rect: info.monitorInfo.rcMonitor,
+                    device: info.szDevice,
+                })
         }
+    }
+
+    fn bounds(s: &Session) -> Option<RECT> {
+        let r = match s.scope {
+            Scope::Window(target) => {
+                let mut rect = RECT::default();
+                unsafe {
+                    DwmGetWindowAttribute(
+                        target.hwnd(),
+                        DWMWA_EXTENDED_FRAME_BOUNDS,
+                        &mut rect as *mut _ as *mut c_void,
+                        size_of::<RECT>() as u32,
+                    )
+                    .ok()?;
+                }
+                rect
+            }
+            Scope::Monitor(target) => (monitor(target.handle) == Some(target)).then_some(target.rect)?,
+        };
         (r.right > r.left && r.bottom > r.top).then_some(r)
     }
-    fn point_allowed(s: &Session, p: POINT) -> bool {
+
+    fn in_area(s: &Session, p: POINT) -> bool {
         let Some(r) = bounds(s) else { return false };
-        if !s.area.contains(
+        s.area.contains(
             (p.x - r.left) as f64 / (r.right - r.left) as f64,
             (p.y - r.top) as f64 / (r.bottom - r.top) as f64,
-        ) {
+        )
+    }
+
+    fn belongs_to(target: WindowTarget, child: HWND) -> bool {
+        let mut pid = 0;
+        unsafe {
+            GetWindowThreadProcessId(child, Some(&mut pid));
+        }
+        pid == target.pid && unsafe { GetAncestor(child, GA_ROOT) } == target.hwnd()
+    }
+
+    fn point_allowed(s: &Session, target: WindowTarget, p: POINT) -> bool {
+        if !in_area(s, p) {
             return false;
         }
         unsafe {
             let mut client = RECT::default();
-            if GetClientRect(hwnd(s), &mut client).is_err() {
+            if GetClientRect(target.hwnd(), &mut client).is_err() {
                 return false;
             }
             let mut origin = POINT::default();
-            if !ClientToScreen(hwnd(s), &mut origin).as_bool() {
+            if !ClientToScreen(target.hwnd(), &mut origin).as_bool() {
                 return false;
             }
             p.x >= origin.x
                 && p.y >= origin.y
                 && p.x < origin.x + client.right
                 && p.y < origin.y + client.bottom
-                && GetAncestor(WindowFromPoint(p), GA_ROOT) == hwnd(s)
+                && belongs_to(target, WindowFromPoint(p))
         }
     }
     fn gate(s: &Session) -> bool {
@@ -432,25 +516,29 @@ pub(crate) mod imp {
             && s.generation == REVOCATION.load(Ordering::SeqCst)
             && s.lease > Instant::now() && s.expires > Instant::now()
             && pause_remaining(ticks(), LAST_LOCAL.load(Ordering::SeqCst)) == 0
-            && unsafe { GetForegroundWindow() } == hwnd(s)
+            && match s.scope {
+                Scope::Window(target) => (unsafe { GetForegroundWindow() }) == target.hwnd(),
+                Scope::Monitor(_) => true,
+            }
             // Physical modifiers/buttons could turn a harmless click/text into a shortcut.
             && [VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN].iter()
                 .all(|k| unsafe { GetAsyncKeyState(k.0 as i32) } >= 0)
     }
-    fn focus_allowed(s: &Session) -> bool {
+    fn focus_allowed(s: &Session, target: WindowTarget) -> bool {
         unsafe {
-            let thread = GetWindowThreadProcessId(hwnd(s), None);
+            let thread = GetWindowThreadProcessId(target.hwnd(), None);
             let mut info = GUITHREADINFO {
                 cbSize: size_of::<GUITHREADINFO>() as u32,
                 ..Default::default()
             };
-            if GetGUIThreadInfo(thread, &mut info).is_err() || GetAncestor(info.hwndFocus, GA_ROOT) != hwnd(s) {
+            if GetGUIThreadInfo(thread, &mut info).is_err() || !belongs_to(target, info.hwndFocus) {
                 return false;
             }
             let mut rect = RECT::default();
             GetWindowRect(info.hwndFocus, &mut rect).is_ok()
                 && point_allowed(
                     s,
+                    target,
                     POINT {
                         x: rect.left + 1,
                         y: rect.top + 1,
@@ -458,6 +546,7 @@ pub(crate) mod imp {
                 )
                 && point_allowed(
                     s,
+                    target,
                     POINT {
                         x: rect.right - 1,
                         y: rect.bottom - 1,
@@ -465,18 +554,99 @@ pub(crate) mod imp {
                 )
         }
     }
+
+    fn monitor_window(hwnd: HWND) -> bool {
+        let mut class = [0u16; 32];
+        unsafe {
+            let len = GetClassNameW(hwnd, &mut class) as usize;
+            // Owned popups and standard dialogs stay under local control.
+            len > 0
+                && !["#32768", "#32770"]
+                    .iter()
+                    .any(|name| name.encode_utf16().eq(class[..len].iter().copied()))
+                && GetWindow(hwnd, GW_OWNER).is_err()
+        }
+    }
+
+    fn monitor_route_allowed(s: &Session, route: &MonitorRoute, point: POINT) -> bool {
+        let target = route.window;
+        if !epoch_ok(route.epoch) || !point_allowed(s, target, point) || !monitor_window(target.hwnd()) {
+            return false;
+        }
+        unsafe {
+            let mut info = GUITHREADINFO {
+                cbSize: size_of::<GUITHREADINFO>() as u32,
+                ..Default::default()
+            };
+            // Capture and menu modes can redirect input away from the window under the pointer.
+            GetGUIThreadInfo(0, &mut info).is_ok()
+                && (info.flags & (GUI_INMENUMODE | GUI_POPUPMENUMODE | GUI_SYSTEMMENUMODE | GUI_INMOVESIZE)).0 == 0
+                && (info.hwndCapture.0.is_null() || belongs_to(target, info.hwndCapture))
+                && (!route.foreground || GetForegroundWindow() == target.hwnd())
+        }
+    }
+
+    fn authorize_destination(s: &mut Session, point: POINT, epoch: u64, foreground: bool) -> Option<WindowTarget> {
+        if !in_area(s, point) {
+            return None;
+        }
+        if let Scope::Window(target) = s.scope {
+            return point_allowed(s, target, point).then_some(target);
+        }
+        let root = unsafe { GetAncestor(WindowFromPoint(point), GA_ROOT) };
+        if !monitor_window(root) {
+            return None;
+        }
+        let cached =
+            s.monitor_route.as_ref().map(|route| route.window).filter(|target| {
+                target.hwnd() == root && s.checked.elapsed() < FULL_CHECK_EVERY && same_process(*target)
+            });
+        let window = match cached {
+            Some(target) => target,
+            None => identity(root).ok()?,
+        };
+        let route = MonitorRoute {
+            window,
+            point,
+            epoch,
+            foreground,
+        };
+        if !monitor_route_allowed(s, &route, point) {
+            return None;
+        }
+        if cached.is_none() {
+            s.checked = Instant::now();
+        }
+        s.monitor_route = Some(route);
+        Some(window)
+    }
     // Runs again on EACH injected event, closing the foreground/local-input race.
     pub fn injected_allowed(point: Option<POINT>) -> bool {
         let Ok(guard) = SESSION.try_lock() else { return false };
         let Some(s) = guard.as_ref() else { return false };
-        gate(s)
-            && point.map_or_else(
-                || {
-                    let mut p = POINT::default();
-                    unsafe { GetCursorPos(&mut p) }.is_ok() && point_allowed(s, p) && focus_allowed(s)
-                },
-                |p| point_allowed(s, p),
-            )
+        if !gate(s) {
+            return false;
+        }
+        let mut p = point.unwrap_or_default();
+        if point.is_none() && unsafe { GetCursorPos(&mut p) }.is_err() {
+            return false;
+        }
+        let target = match s.scope {
+            Scope::Window(target) if point_allowed(s, target, p) => target,
+            Scope::Monitor(_) => {
+                let Some(route) = &s.monitor_route else { return false };
+                // If Windows suppressed a move, never click/scroll at the old cursor location.
+                if p.x.abs_diff(route.point.x) > 1
+                    || p.y.abs_diff(route.point.y) > 1
+                    || !monitor_route_allowed(s, route, p)
+                {
+                    return false;
+                }
+                route.window
+            }
+            Scope::Window(_) => return false,
+        };
+        point.is_some() || focus_allowed(s, target)
     }
     pub fn start(source_id: &str, request: String, permissions: Capabilities, area: Area) -> Result<(), String> {
         stop();
@@ -486,26 +656,31 @@ pub(crate) mod imp {
         }
         // Serialize capture replacement against activation, including native Closed callbacks.
         let current_source = SOURCE.lock().map_err(|_| "Captura indisponível")?;
-        if current_source.as_deref() != Some(source_id) {
-            return Err("A janela precisa estar sendo compartilhada.".into());
-        }
-        let raw: isize = source_id
-            .strip_prefix("window:")
-            .ok_or("Compartilhe somente uma janela, nunca o monitor inteiro.")?
-            .parse()
-            .map_err(|_| "Janela inválida")?;
-        let target = HWND(raw as *mut c_void);
+        let source = current_source
+            .as_ref()
+            .filter(|source| source.id == source_id)
+            .ok_or("A tela ou janela precisa estar sendo compartilhada.")?;
+        let (kind, handle) = source_id.split_once(':').ok_or("Fonte inválida.")?;
+        let raw = handle.parse::<isize>().map_err(|_| "Fonte inválida.")?;
         unsafe {
             non_admin(GetCurrentProcess())?;
         }
         if !default_desktop() {
             return Err("Área de trabalho protegida: controle bloqueado.".into());
         }
-        let (pid, created) = identity(target)?;
+        let scope = match kind {
+            "window" => Scope::Window(identity(HWND(raw as *mut c_void))?),
+            "screen" => Scope::Monitor(
+                source
+                    .monitor
+                    .filter(|target| monitor(raw) == Some(*target))
+                    .ok_or("A configuração da tela mudou. Compartilhe a tela novamente.")?,
+            ),
+            _ => return Err("Fonte inválida.".into()),
+        };
         *SESSION.lock().map_err(|_| "Controle indisponível")? = Some(Session {
-            hwnd: raw,
-            pid,
-            created,
+            scope,
+            monitor_route: None,
             request,
             permissions,
             area,
@@ -534,6 +709,7 @@ pub(crate) mod imp {
             if s.lease <= Instant::now()
                 || s.expires <= Instant::now()
                 || s.generation != REVOCATION.load(Ordering::SeqCst)
+                || (matches!(s.scope, Scope::Monitor(_)) && bounds(s).is_none())
             {
                 stop();
             }
@@ -548,6 +724,9 @@ pub(crate) mod imp {
         })
     }
     pub fn input(request: &str, epoch: u64, sequence: u64, input: Input) -> Result<bool, String> {
+        let Ok(_injection) = INJECTION.try_lock() else {
+            return Ok(false);
+        };
         // Detect local input that a hook did not see (e.g. another desktop or a removed hook).
         let mut last = LASTINPUTINFO {
             cbSize: size_of::<LASTINPUTINFO>() as u32,
@@ -578,15 +757,18 @@ pub(crate) mod imp {
             {
                 return Ok(false);
             }
-            if s.checked.elapsed() >= FULL_CHECK_EVERY {
-                if identity(hwnd(s))? != (s.pid, s.created) {
+            if let Scope::Window(target) = s.scope {
+                if s.checked.elapsed() >= FULL_CHECK_EVERY {
+                    let current = identity(target.hwnd())?;
+                    if current.pid != target.pid || current.created != target.created {
+                        stop();
+                        return Ok(false);
+                    }
+                    s.checked = Instant::now();
+                } else if !same_process(target) {
                     stop();
                     return Ok(false);
                 }
-                s.checked = Instant::now();
-            } else if !same_process(s) {
-                stop();
-                return Ok(false);
             }
             let mouse = |flags, data, dx, dy| INPUT {
                 r#type: INPUT_MOUSE,
@@ -607,10 +789,13 @@ pub(crate) mod imp {
                         return Ok(false);
                     }
                     let mut p = POINT::default();
-                    if unsafe { GetCursorPos(&mut p) }.is_err() || !point_allowed(s, p) {
+                    if unsafe { GetCursorPos(&mut p) }.is_err() {
                         return Ok(false);
                     }
-                    if !focus_allowed(s) {
+                    let Some(target) = authorize_destination(s, p, epoch, true) else {
+                        return Ok(false);
+                    };
+                    if !focus_allowed(s, target) {
                         return Ok(false);
                     }
                     text.encode_utf16()
@@ -647,7 +832,7 @@ pub(crate) mod imp {
                         x: r.left + (x * (r.right - r.left) as f64) as i32,
                         y: r.top + (y * (r.bottom - r.top) as f64) as i32,
                     };
-                    if !point_allowed(s, p) {
+                    if authorize_destination(s, p, epoch, matches!(other, Input::Scroll { .. })).is_none() {
                         return Ok(false);
                     }
                     let vx = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
@@ -826,9 +1011,12 @@ pub(crate) mod imp {
             let generation = REVOCATION.load(Ordering::SeqCst);
             stop();
             *SESSION.lock().unwrap() = Some(Session {
-                hwnd: 0,
-                pid: 0,
-                created: 0,
+                scope: Scope::Window(WindowTarget {
+                    handle: 0,
+                    pid: 0,
+                    created: 0,
+                }),
+                monitor_route: None,
                 request: "test".into(),
                 permissions: Capabilities::default(),
                 area: Area {

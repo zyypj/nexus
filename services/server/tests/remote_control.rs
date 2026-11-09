@@ -56,7 +56,7 @@ fn movement(id: &str, seq: u64) -> Value {
 
 #[tokio::test]
 async fn private_control_requires_offer_consent_capabilities_and_bound_device() {
-    let s = TestServer::start().await;
+    let s = TestServer::start_with(|config| config.public_url = "http://192.168.1.2:3000".into()).await;
     let (users, conversation) = s.group("ctrl", 3).await;
     let (owner, controller, other) = (&users[0], &users[1], &users[2]);
     let call = start(owner, &conversation).await;
