@@ -36,7 +36,8 @@
 .remote-area-preview > div { position: absolute; display: grid; place-content: center; border: 2px solid #f6a84c; background: #f6a84c22; color: #ffe3bf; font-size: 12px; overflow: hidden; }
 .remote-surface { position: absolute; inset: 0; z-index: 3; cursor: crosshair; touch-action: none; }
 .remote-controller { position: absolute; z-index: 5; top: 8px; left: 8px; max-width: calc(100% - 110px); display: grid; gap: 6px; padding: 8px; background: #171522ef; border: 1px solid #f6a84c; border-radius: 8px; color: #fff; }
-.remote-controller form { display: flex; gap: 6px; }
-.remote-controller input { min-width: 0; width: 160px; background: #12101d; border: 1px solid #777; border-radius: 4px; padding: 6px; }
+.remote-surface:focus { outline: none; }
+.tile:has(.remote-surface) .remote-controller { pointer-events: none; }
+.tile:has(.remote-surface) .remote-controller button { pointer-events: auto; }
 .remote-controller small { max-width: 330px; }
 .tile:has(.remote-surface) .tile-actions { z-index: 6; }

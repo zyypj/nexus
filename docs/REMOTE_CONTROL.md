@@ -13,13 +13,13 @@ Não há acesso não supervisionado, senha permanente nem aceite automático.
    Em servidor, o cargo/canal precisa de `REQUEST_CONTROL`, além de acesso à chamada.
    Em DM/grupo privado não há essa exigência de cargo. O aceite do dono sempre é obrigatório.
 4. O dono confere nome, usuário e ID e escolhe separadamente movimento, cliques,
-   rolagem e texto. Todas as opções começam desmarcadas. Pode delimitar a área por
+   rolagem e teclado. Todas as opções começam desmarcadas. Pode delimitar a área por
    porcentagens ou usar os atalhos de metade esquerda, metade direita e centro.
    O retângulo limita **entrada**, não recorta o vídeo que as pessoas assistem.
 5. O controlador ativa **Entrar no modo de controle** e aguarda três segundos após o
    último movimento ou tecla do dono. Em tela inteira, um clique pode alternar entre
-   aplicativos visíveis dentro da área permitida. Para rolar ou digitar, o aplicativo
-   precisa estar em primeiro plano. Em modo janela, o dono põe a janela em primeiro plano.
+   aplicativos visíveis dentro da área permitida. Para rolar ou digitar, clique no
+   aplicativo para dar foco a ele. O mouse e o teclado funcionam na própria transmissão.
 6. **Esc**, fechar/clicar na barra nativa de emergência ou **Encerrar controle e
    solicitações** revogam o acesso. Para mudar permissões/área, encerre e aprove novamente.
 
@@ -52,24 +52,25 @@ Não há acesso não supervisionado, senha permanente nem aceite automático.
   entrada. Há também verificação de `GetLastInputInfo` para entrada não observada: se o
   Windows registrou entrada mais de 50 ms depois da última vista pelos hooks (por exemplo,
   um hook removido pelo Windows por demora), o controle pausa.
-  Não há fila de reprodução: no máximo um movimento e uma ação atômica em trânsito;
-  cliques podem ultrapassar movimentos antigos, que são descartados pela sequência.
+  Cliques, arrastes e teclas recentes seguem em ordem. A fila expira em 450 ms e é
+  limpa ao sair do modo de controle. A transmissão conserva somente o movimento mais recente.
 - Épocas de entrada também mudam a cada heartbeat (aproximadamente 500 ms), para
   descartar pacotes antigos. São aceitas a época atual e a anterior (o servidor só conhece a
   nova uma ida e volta depois), nunca uma anterior ao último uso local ou à revogação. Isso
   limita a idade de um pacote a cerca de dois heartbeats sem perder cliques legítimos.
   Sequências crescentes impedem repetição/reordenação.
 - O Windows verifica a área autorizada e a janela de destino antes de cada lote de entrada
-  e novamente nos hooks. No modo janela, a janela escolhida precisa estar em primeiro plano.
+  e novamente nos hooks. O foco precisa estar no aplicativo para rolar ou digitar.
   No modo tela inteira, o monitor deve manter a identidade, a posição e as dimensões aprovadas.
   Ao mudar de aplicativo, o Nexus verifica o novo processo antes de enviar entrada. Bordas,
   barra de tarefas, menus do sistema e caixas de diálogo protegidas ficam sob controle local.
 - Sem execução elevada/UIAccess. Nexus e sua árvore de processos são proibidos,
   assim como Gerenciador de Tarefas, UAC, ferramentas de sistema e terminais
   conhecidos. Área de trabalho protegida também é bloqueada. Falhas de verificação negam entrada.
-- O controlador pode usar o botão esquerdo em pares de pressionar e soltar. A digitação usa
-  Unicode imprimível, sem Enter, Tab ou atalhos globais. Texto requer foco dentro da área
-  autorizada; alguns aplicativos não aceitam esse modo restrito de digitação.
+- Os botões esquerdo e direito permitem clicar e usar menus do aplicativo quando o Windows
+  confirma a quem o menu pertence. O arraste requer as permissões de movimento e cliques.
+  Ele é enviado ao soltar o botão, em linha reta, dentro do mesmo aplicativo e da área permitida.
+  O teclado envia texto e teclas como Enter, Tab, Backspace e setas. Atalhos globais ficam bloqueados.
 - Botão de emergência numa janela Win32 separada, sempre no topo, que funciona
   sem depender do renderizador React. Fechar o Nexus para a bandeja encerra
   a sessão nativa ativa; a minimização normal mantém a barra de emergência.
@@ -116,6 +117,8 @@ no navegador, incluindo autorização inicialmente desabilitada e área inválid
 - WGC e `SendInput` reais, DPI 100/150/200%, múltiplos monitores e coordenadas negativas;
 - em tela inteira, alternar entre dois aplicativos visíveis e confirmar que a área escolhida,
   o monitor vizinho e os aplicativos bloqueados não recebem ações fora do escopo;
+- clicar com os dois botões, usar um menu Win32, arrastar dentro do aplicativo, digitar
+  no campo em foco e verificar Enter, Tab e setas. Repetir com cada permissão desmarcada;
 - owner move/click/scroll/keyboard durante entrada remota contínua: parar imediatamente
   e só voltar três segundos após a última entrada, sem reproduzir comandos antigos;
 - Esc, barra nativa e desconexão com Nexus minimizado/oculto, renderizador travado e rede interrompida;

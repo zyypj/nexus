@@ -73,16 +73,34 @@ describe("native authorization boundary", () => {
     await syncRemoteControl();
     expect(useRemoteControl.getState().offered).toBe(false);
   });
-  it("does not buffer another input while one is in flight", async () => {
+  it("keeps clicks and keyboard input in order while a request is in flight", async () => {
     useRemoteControl.setState({ offered: false, shares: [{ ...share, owner_id: "target", controller_id: "owner" }] });
     let resolve!: () => void;
     mocks.request.mockImplementationOnce(() => new Promise<void>((r) => { resolve = r; }));
     const first = sendControlInput("target", { kind: "click", x: 0.5, y: 0.5, button: 0 });
     await sendControlInput("target", { kind: "click", x: 0.6, y: 0.6, button: 0 });
+    await sendControlInput("target", { kind: "key", key: "Enter" });
     expect(mocks.request).toHaveBeenCalledTimes(1);
     resolve(); await first;
+    expect(mocks.request.mock.calls.map((args) => args[2].input)).toEqual([
+      { kind: "click", x: 0.5, y: 0.5, button: 0 },
+      { kind: "click", x: 0.6, y: 0.6, button: 0 },
+      { kind: "key", key: "Enter" },
+    ]);
   });
-  it("lets a click overtake a pending move without buffering more actions", async () => {
+  it("drops queued clicks after a connection stall", async () => {
+    let now = 10_000;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    useRemoteControl.setState({ offered: false, shares: [{ ...share, owner_id: "target", controller_id: "owner" }] });
+    let resolve!: () => void;
+    mocks.request.mockImplementationOnce(() => new Promise<void>((r) => { resolve = r; }));
+    const first = sendControlInput("target", { kind: "click", x: 0.5, y: 0.5, button: 0 });
+    await sendControlInput("target", { kind: "click", x: 0.6, y: 0.6, button: 0 });
+    now += 1000;
+    resolve(); await first;
+    expect(mocks.request).toHaveBeenCalledTimes(1);
+  });
+  it("lets a click overtake a move already in flight", async () => {
     vi.spyOn(performance, "now").mockReturnValue(10_000);
     useRemoteControl.setState({ offered: false, shares: [{ ...share, owner_id: "target", controller_id: "owner" }] });
     let resolve!: () => void;

@@ -312,7 +312,7 @@ async fn changes_are_pushed_and_the_heartbeat_returns_the_owner_view() {
     let packet = owner_gw.next_event("REMOTE_CONTROL_INPUT").await;
     assert_eq!(packet["epoch"], 3, "inputs carry the epoch of the last heartbeat");
 
-    // Right clicks are refused: their menus are windows the guard blocks.
+    // This grant only allows pointer motion. A right click still needs consent.
     let right =
         json!({"action":"input","request_id":id,"sequence":2,"input":{"kind":"click","x":0.5,"y":0.5,"button":1}});
     assert_eq!(cmd(controller, &call, right).await.0, StatusCode::FORBIDDEN);

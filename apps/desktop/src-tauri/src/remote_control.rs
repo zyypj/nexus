@@ -1,4 +1,4 @@
-//! Attended Windows input. Global shortcuts, drag/held keys and clipboard are not supported.
+//! Attended Windows input. Mouse gestures and key presses are bounded batches.
 //! Native enforcement is independent of React and of the requesting client.
 use serde::{Deserialize, Serialize};
 
@@ -40,12 +40,21 @@ impl Area {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ControlPoint {
+    x: f64,
+    y: f64,
+}
+
+#[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Input {
     Move { x: f64, y: f64 },
     Click { x: f64, y: f64, button: u8 },
+    Drag { from: ControlPoint, to: ControlPoint },
     Scroll { x: f64, y: f64, delta: i32 },
     Text { text: String },
+    Key { key: String },
 }
 
 #[derive(Serialize)]
@@ -197,6 +206,7 @@ pub(crate) mod imp {
     static SESSION: Mutex<Option<Session>> = Mutex::new(None);
     // A concurrent request must not change the route while Windows checks a batch.
     static INJECTION: Mutex<()> = Mutex::new(());
+    static BATCH_CANCELLED: AtomicBool = AtomicBool::new(false);
 
     #[derive(Clone, Copy)]
     struct WindowTarget {
@@ -222,9 +232,9 @@ pub(crate) mod imp {
         monitor: Option<MonitorTarget>,
     }
 
-    struct MonitorRoute {
+    struct InputRoute {
         window: WindowTarget,
-        point: POINT,
+        points: Vec<POINT>,
         epoch: u64,
         foreground: bool,
     }
@@ -236,7 +246,7 @@ pub(crate) mod imp {
 
     struct Session {
         scope: Scope,
-        monitor_route: Option<MonitorRoute>,
+        input_route: Option<InputRoute>,
         request: String,
         permissions: Capabilities,
         area: Area,
@@ -516,10 +526,6 @@ pub(crate) mod imp {
             && s.generation == REVOCATION.load(Ordering::SeqCst)
             && s.lease > Instant::now() && s.expires > Instant::now()
             && pause_remaining(ticks(), LAST_LOCAL.load(Ordering::SeqCst)) == 0
-            && match s.scope {
-                Scope::Window(target) => (unsafe { GetForegroundWindow() }) == target.hwnd(),
-                Scope::Monitor(_) => true,
-            }
             // Physical modifiers/buttons could turn a harmless click/text into a shortcut.
             && [VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN].iter()
                 .all(|k| unsafe { GetAsyncKeyState(k.0 as i32) } >= 0)
@@ -534,119 +540,173 @@ pub(crate) mod imp {
             if GetGUIThreadInfo(thread, &mut info).is_err() || !belongs_to(target, info.hwndFocus) {
                 return false;
             }
+            if belongs_to(target, info.hwndCaret) {
+                let mut caret = POINT {
+                    x: info.rcCaret.left,
+                    y: info.rcCaret.top,
+                };
+                return ClientToScreen(info.hwndCaret, &mut caret).as_bool() && in_area(s, caret);
+            }
+            // A top-level window can own keyboard focus. Use the client area,
+            // excluding borders and title bar, when the app has no native caret.
             let mut rect = RECT::default();
-            GetWindowRect(info.hwndFocus, &mut rect).is_ok()
-                && point_allowed(
+            let mut origin = POINT::default();
+            GetClientRect(info.hwndFocus, &mut rect).is_ok()
+                && rect.right > 0
+                && rect.bottom > 0
+                && ClientToScreen(info.hwndFocus, &mut origin).as_bool()
+                && in_area(s, origin)
+                && in_area(
                     s,
-                    target,
                     POINT {
-                        x: rect.left + 1,
-                        y: rect.top + 1,
-                    },
-                )
-                && point_allowed(
-                    s,
-                    target,
-                    POINT {
-                        x: rect.right - 1,
-                        y: rect.bottom - 1,
+                        x: origin.x + rect.right - 1,
+                        y: origin.y + rect.bottom - 1,
                     },
                 )
         }
     }
 
-    fn monitor_window(hwnd: HWND) -> bool {
+    fn window_class(hwnd: HWND, name: &str) -> bool {
         let mut class = [0u16; 32];
+        let len = unsafe { GetClassNameW(hwnd, &mut class) } as usize;
+        len > 0 && name.encode_utf16().eq(class[..len].iter().copied())
+    }
+
+    fn monitor_window(hwnd: HWND) -> bool {
+        // Route application menus through their real owner. Dialogs and
+        // arbitrary owned windows do not become new destinations.
         unsafe {
-            let len = GetClassNameW(hwnd, &mut class) as usize;
-            // Owned popups and standard dialogs stay under local control.
-            len > 0
-                && !["#32768", "#32770"]
-                    .iter()
-                    .any(|name| name.encode_utf16().eq(class[..len].iter().copied()))
+            IsWindow(Some(hwnd)).as_bool()
+                && !window_class(hwnd, "#32768")
+                && !window_class(hwnd, "#32770")
                 && GetWindow(hwnd, GW_OWNER).is_err()
         }
     }
 
-    fn monitor_route_allowed(s: &Session, route: &MonitorRoute, point: POINT) -> bool {
+    fn foreground_info() -> Option<GUITHREADINFO> {
+        let mut info = GUITHREADINFO {
+            cbSize: size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+        unsafe {
+            GetGUIThreadInfo(0, &mut info).ok()?;
+        }
+        Some(info)
+    }
+
+    fn is_application_menu(info: &GUITHREADINFO) -> bool {
+        (info.flags & (GUI_INMENUMODE | GUI_POPUPMENUMODE)).0 != 0 && (info.flags & GUI_SYSTEMMENUMODE).0 == 0
+    }
+
+    fn menu_belongs_to(window: HWND, target: WindowTarget) -> bool {
+        let mut pid = 0;
+        unsafe {
+            GetWindowThreadProcessId(window, Some(&mut pid));
+        }
+        pid == target.pid && window_class(window, "#32768")
+    }
+
+    fn route_allowed(s: &Session, route: &InputRoute, point: Option<POINT>) -> bool {
         let target = route.window;
-        if !epoch_ok(route.epoch) || !point_allowed(s, target, point) || !monitor_window(target.hwnd()) {
+        if !epoch_ok(route.epoch) || (matches!(s.scope, Scope::Monitor(_)) && !monitor_window(target.hwnd())) {
             return false;
         }
-        unsafe {
-            let mut info = GUITHREADINFO {
-                cbSize: size_of::<GUITHREADINFO>() as u32,
-                ..Default::default()
-            };
-            // Capture and menu modes can redirect input away from the window under the pointer.
-            GetGUIThreadInfo(0, &mut info).is_ok()
-                && (info.flags & (GUI_INMENUMODE | GUI_POPUPMENUMODE | GUI_SYSTEMMENUMODE | GUI_INMOVESIZE)).0 == 0
-                && (info.hwndCapture.0.is_null() || belongs_to(target, info.hwndCapture))
-                && (!route.foreground || GetForegroundWindow() == target.hwnd())
+        let Some(info) = foreground_info() else { return false };
+        if (info.flags & (GUI_SYSTEMMENUMODE | GUI_INMOVESIZE)).0 != 0 {
+            return false;
+        }
+        let menu = is_application_menu(&info);
+        if (menu && !belongs_to(target, info.hwndMenuOwner))
+            || (!info.hwndCapture.0.is_null()
+                && !belongs_to(target, info.hwndCapture)
+                && !(menu && menu_belongs_to(info.hwndCapture, target)))
+            || (route.foreground && unsafe { GetForegroundWindow() } != target.hwnd())
+        {
+            return false;
+        }
+        match point {
+            Some(p) if menu => in_area(s, p) && menu_belongs_to(unsafe { WindowFromPoint(p) }, target),
+            Some(p) => point_allowed(s, target, p),
+            None => !menu && focus_allowed(s, target),
         }
     }
 
-    fn authorize_destination(s: &mut Session, point: POINT, epoch: u64, foreground: bool) -> Option<WindowTarget> {
-        if !in_area(s, point) {
-            return None;
-        }
-        if let Scope::Window(target) = s.scope {
-            return point_allowed(s, target, point).then_some(target);
-        }
-        let root = unsafe { GetAncestor(WindowFromPoint(point), GA_ROOT) };
-        if !monitor_window(root) {
-            return None;
-        }
-        let cached =
-            s.monitor_route.as_ref().map(|route| route.window).filter(|target| {
-                target.hwnd() == root && s.checked.elapsed() < FULL_CHECK_EVERY && same_process(*target)
-            });
-        let window = match cached {
-            Some(target) => target,
-            None => identity(root).ok()?,
+    fn destination_root(point: Option<POINT>) -> HWND {
+        let Some(point) = point else {
+            return unsafe { GetForegroundWindow() };
         };
-        let route = MonitorRoute {
+        let hit = unsafe { WindowFromPoint(point) };
+        if window_class(hit, "#32768") {
+            let Some(info) = foreground_info().filter(is_application_menu) else {
+                return HWND::default();
+            };
+            return unsafe { GetAncestor(info.hwndMenuOwner, GA_ROOT) };
+        }
+        unsafe { GetAncestor(hit, GA_ROOT) }
+    }
+
+    fn authorize_destination(s: &mut Session, point: Option<POINT>, epoch: u64, foreground: bool) -> Option<()> {
+        if point.is_some_and(|point| !in_area(s, point)) {
+            return None;
+        }
+        let (window, fresh) = match s.scope {
+            Scope::Window(target) => (target, false),
+            Scope::Monitor(_) => {
+                let root = destination_root(point);
+                if !monitor_window(root) {
+                    return None;
+                }
+                let cached = s.input_route.as_ref().map(|route| route.window).filter(|target| {
+                    target.hwnd() == root && s.checked.elapsed() < FULL_CHECK_EVERY && same_process(*target)
+                });
+                if let Some(target) = cached {
+                    (target, false)
+                } else {
+                    (identity(root).ok()?, true)
+                }
+            }
+        };
+        let route = InputRoute {
             window,
-            point,
+            points: point.into_iter().collect(),
             epoch,
             foreground,
         };
-        if !monitor_route_allowed(s, &route, point) {
+        if !route_allowed(s, &route, point) {
             return None;
         }
-        if cached.is_none() {
+        if fresh {
             s.checked = Instant::now();
         }
-        s.monitor_route = Some(route);
-        Some(window)
+        s.input_route = Some(route);
+        Some(())
     }
-    // Runs again on EACH injected event, closing the foreground/local-input race.
+
+    // Cancel the rest of the batch when a destination changes. The hooks
+    // still pass paired key/button releases so no input can stay held.
     pub fn injected_allowed(point: Option<POINT>) -> bool {
+        if BATCH_CANCELLED.load(Ordering::SeqCst) {
+            return false;
+        }
+        let allowed = check_injected_destination(point);
+        if !allowed {
+            BATCH_CANCELLED.store(true, Ordering::SeqCst);
+        }
+        allowed
+    }
+
+    fn check_injected_destination(point: Option<POINT>) -> bool {
         let Ok(guard) = SESSION.try_lock() else { return false };
         let Some(s) = guard.as_ref() else { return false };
-        if !gate(s) {
-            return false;
-        }
-        let mut p = point.unwrap_or_default();
-        if point.is_none() && unsafe { GetCursorPos(&mut p) }.is_err() {
-            return false;
-        }
-        let target = match s.scope {
-            Scope::Window(target) if point_allowed(s, target, p) => target,
-            Scope::Monitor(_) => {
-                let Some(route) = &s.monitor_route else { return false };
-                // If Windows suppressed a move, never click/scroll at the old cursor location.
-                if p.x.abs_diff(route.point.x) > 1
-                    || p.y.abs_diff(route.point.y) > 1
-                    || !monitor_route_allowed(s, route, p)
-                {
-                    return false;
-                }
-                route.window
-            }
-            Scope::Window(_) => return false,
-        };
-        point.is_some() || focus_allowed(s, target)
+        let Some(route) = &s.input_route else { return false };
+        gate(s)
+            && point.map_or(route.points.is_empty(), |p| {
+                route
+                    .points
+                    .iter()
+                    .any(|q| p.x.abs_diff(q.x) <= 1 && p.y.abs_diff(q.y) <= 1)
+            })
+            && route_allowed(s, route, point)
     }
     pub fn start(source_id: &str, request: String, permissions: Capabilities, area: Area) -> Result<(), String> {
         stop();
@@ -680,7 +740,7 @@ pub(crate) mod imp {
         };
         *SESSION.lock().map_err(|_| "Controle indisponível")? = Some(Session {
             scope,
-            monitor_route: None,
+            input_route: None,
             request,
             permissions,
             area,
@@ -723,6 +783,126 @@ pub(crate) mod imp {
             paused_ms: pause_remaining(ticks(), LAST_LOCAL.load(Ordering::SeqCst)),
         })
     }
+
+    fn mouse(flags: MOUSE_EVENT_FLAGS, data: u32, dx: i32, dy: i32) -> INPUT {
+        INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx,
+                    dy,
+                    mouseData: data,
+                    dwFlags: flags,
+                    time: 0,
+                    dwExtraInfo: MARKER,
+                },
+            },
+        }
+    }
+
+    fn mouse_move(point: POINT) -> Option<INPUT> {
+        let (left, top, width, height) = unsafe {
+            (
+                GetSystemMetrics(SM_XVIRTUALSCREEN),
+                GetSystemMetrics(SM_YVIRTUALSCREEN),
+                GetSystemMetrics(SM_CXVIRTUALSCREEN),
+                GetSystemMetrics(SM_CYVIRTUALSCREEN),
+            )
+        };
+        let (x, y) = (point.x - left, point.y - top);
+        if !(0..width).contains(&x) || !(0..height).contains(&y) {
+            return None;
+        }
+        let absolute =
+            |value: i32, span: i32| ((i64::from(value) * 65536 + i64::from(span) - 1) / i64::from(span)) as i32;
+        Some(mouse(
+            MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_MOVE_NOCOALESCE,
+            0,
+            absolute(x, width),
+            absolute(y, height),
+        ))
+    }
+
+    fn screen_point(s: &Session, x: f64, y: f64) -> Option<POINT> {
+        if !s.area.contains(x, y) {
+            return None;
+        }
+        let r = bounds(s)?;
+        Some(POINT {
+            x: r.left + (x * (r.right - r.left) as f64) as i32,
+            y: r.top + (y * (r.bottom - r.top) as f64) as i32,
+        })
+    }
+
+    fn keyboard_pair(key: VIRTUAL_KEY, scan: u16, flags: KEYBD_EVENT_FLAGS) -> [INPUT; 2] {
+        [flags, flags | KEYEVENTF_KEYUP].map(|dw_flags| INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: key,
+                    wScan: scan,
+                    dwFlags: dw_flags,
+                    time: 0,
+                    dwExtraInfo: MARKER,
+                },
+            },
+        })
+    }
+
+    fn editing_key(name: &str) -> Option<[INPUT; 2]> {
+        let (key, extended) = match name {
+            "Enter" => (VK_RETURN, false),
+            "Tab" => (VK_TAB, false),
+            "Backspace" => (VK_BACK, false),
+            "Delete" => (VK_DELETE, true),
+            "ArrowUp" => (VK_UP, true),
+            "ArrowDown" => (VK_DOWN, true),
+            "ArrowLeft" => (VK_LEFT, true),
+            "ArrowRight" => (VK_RIGHT, true),
+            "Home" => (VK_HOME, true),
+            "End" => (VK_END, true),
+            "PageUp" => (VK_PRIOR, true),
+            "PageDown" => (VK_NEXT, true),
+            _ => return None,
+        };
+        Some(keyboard_pair(
+            key,
+            0,
+            if extended {
+                KEYEVENTF_EXTENDEDKEY
+            } else {
+                KEYBD_EVENT_FLAGS(0)
+            },
+        ))
+    }
+
+    fn drag_events(s: &mut Session, from: ControlPoint, to: ControlPoint, epoch: u64) -> Option<Vec<INPUT>> {
+        let start = screen_point(s, from.x, from.y)?;
+        let end = screen_point(s, to.x, to.y)?;
+        authorize_destination(s, Some(start), epoch, false)?;
+        let route = s.input_route.as_ref()?;
+        // Verify the complete path before pressing the button. One batch always
+        // includes its release, even if a hook rejects an intermediate move.
+        const STEPS: i32 = 12;
+        let path = (0..=STEPS)
+            .map(|step| POINT {
+                x: start.x + (end.x - start.x) * step / STEPS,
+                y: start.y + (end.y - start.y) * step / STEPS,
+            })
+            .collect::<Vec<_>>();
+        if !path
+            .iter()
+            .all(|point| point_allowed(s, route.window, *point) && route_allowed(s, route, Some(*point)))
+        {
+            return None;
+        }
+        let mut events = path.iter().copied().map(mouse_move).collect::<Option<Vec<_>>>()?;
+        events.insert(1, mouse(MOUSEEVENTF_LEFTDOWN, 0, 0, 0));
+        events.push(mouse(MOUSEEVENTF_LEFTUP, 0, 0, 0));
+        s.input_route.as_mut()?.points = path;
+        Some(events)
+    }
+
     pub fn input(request: &str, epoch: u64, sequence: u64, input: Input) -> Result<bool, String> {
         let Ok(_injection) = INJECTION.try_lock() else {
             return Ok(false);
@@ -770,88 +950,65 @@ pub(crate) mod imp {
                     return Ok(false);
                 }
             }
-            let mouse = |flags, data, dx, dy| INPUT {
-                r#type: INPUT_MOUSE,
-                Anonymous: INPUT_0 {
-                    mi: MOUSEINPUT {
-                        dx,
-                        dy,
-                        mouseData: data,
-                        dwFlags: flags,
-                        time: 0,
-                        dwExtraInfo: MARKER,
-                    },
-                },
-            };
             match input {
                 Input::Text { text } => {
                     if !s.permissions.text || text.is_empty() || text.len() > 64 || text.chars().any(char::is_control) {
                         return Ok(false);
                     }
-                    let mut p = POINT::default();
-                    if unsafe { GetCursorPos(&mut p) }.is_err() {
-                        return Ok(false);
-                    }
-                    let Some(target) = authorize_destination(s, p, epoch, true) else {
-                        return Ok(false);
-                    };
-                    if !focus_allowed(s, target) {
+                    if authorize_destination(s, None, epoch, true).is_none() {
                         return Ok(false);
                     }
                     text.encode_utf16()
-                        .flat_map(|unit| {
-                            [KEYEVENTF_UNICODE, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP].map(|flags| INPUT {
-                                r#type: INPUT_KEYBOARD,
-                                Anonymous: INPUT_0 {
-                                    ki: KEYBDINPUT {
-                                        wVk: VIRTUAL_KEY(0),
-                                        wScan: unit,
-                                        dwFlags: flags,
-                                        time: 0,
-                                        dwExtraInfo: MARKER,
-                                    },
-                                },
-                            })
-                        })
+                        .flat_map(|unit| keyboard_pair(VIRTUAL_KEY(0), unit, KEYEVENTF_UNICODE))
                         .collect::<Vec<_>>()
+                }
+                Input::Key { key } => {
+                    let Some(events) = editing_key(&key) else {
+                        return Ok(false);
+                    };
+                    if !s.permissions.text || authorize_destination(s, None, epoch, true).is_none() {
+                        return Ok(false);
+                    }
+                    events.to_vec()
+                }
+                Input::Drag { from, to } => {
+                    if !s.permissions.pointer || !s.permissions.click {
+                        return Ok(false);
+                    }
+                    let Some(events) = drag_events(s, from, to, epoch) else {
+                        return Ok(false);
+                    };
+                    events
                 }
                 other => {
                     let (x, y, allowed) = match &other {
                         Input::Move { x, y } => (*x, *y, s.permissions.pointer),
-                        // Left button only: a right click opens a menu, a separate
-                        // window the guard refuses, and leaves it open on the owner's screen.
-                        Input::Click { x, y, button } => (*x, *y, s.permissions.click && *button == 0),
+                        Input::Click { x, y, button } => (*x, *y, s.permissions.click && *button <= 1),
                         Input::Scroll { x, y, delta } => (*x, *y, s.permissions.scroll && delta.abs_diff(0) <= 480),
                         _ => unreachable!(),
                     };
-                    if !allowed || !s.area.contains(x, y) {
+                    if !allowed {
                         return Ok(false);
                     }
-                    let Some(r) = bounds(s) else { return Ok(false) };
-                    let p = POINT {
-                        x: r.left + (x * (r.right - r.left) as f64) as i32,
-                        y: r.top + (y * (r.bottom - r.top) as f64) as i32,
+                    let Some(p) = screen_point(s, x, y) else {
+                        return Ok(false);
                     };
-                    if authorize_destination(s, p, epoch, matches!(other, Input::Scroll { .. })).is_none() {
+                    if authorize_destination(s, Some(p), epoch, matches!(other, Input::Scroll { .. })).is_none() {
                         return Ok(false);
                     }
-                    let vx = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
-                    let vy = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
-                    let vw = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) };
-                    let vh = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) };
-                    if vw <= 1 || vh <= 1 {
+                    let Some(movement) = mouse_move(p) else {
                         return Ok(false);
-                    }
-                    let mut events = vec![mouse(
-                        MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
-                        0,
-                        ((p.x - vx) as i64 * 65535 / (vw - 1) as i64) as i32,
-                        ((p.y - vy) as i64 * 65535 / (vh - 1) as i64) as i32,
-                    )];
+                    };
+                    let mut events = vec![movement];
                     match other {
-                        Input::Click { .. } => {
-                            events.push(mouse(MOUSEEVENTF_LEFTDOWN, 0, 0, 0));
-                            events.push(mouse(MOUSEEVENTF_LEFTUP, 0, 0, 0));
+                        Input::Click { button, .. } => {
+                            let (down, up) = if button == 0 {
+                                (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP)
+                            } else {
+                                (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP)
+                            };
+                            events.push(mouse(down, 0, 0, 0));
+                            events.push(mouse(up, 0, 0, 0));
                         }
                         Input::Scroll { delta, .. } => events.push(mouse(MOUSEEVENTF_WHEEL, delta as u32, 0, 0)),
                         _ => {}
@@ -863,10 +1020,11 @@ pub(crate) mod imp {
         if !epoch_ok(epoch) {
             return Ok(false);
         }
+        BATCH_CANCELLED.store(false, Ordering::SeqCst);
         let sent = unsafe { SendInput(&events, size_of::<INPUT>() as i32) };
         if sent != events.len() as u32 {
             stop();
-            // A partially inserted batch must not leave a button or Unicode packet held.
+            // A partially inserted batch must not leave a button or key held.
             // The hooks allow these releases even after revocation.
             let releases = emergency_releases(&events[..(sent as usize).min(events.len())]);
             if !releases.is_empty() {
@@ -920,7 +1078,7 @@ pub(crate) mod imp {
                 };
                 RegisterClassW(&wc);
                 let window = CreateWindowExW(
-                    WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                    WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                     class,
                     w!("CONTROLE REMOTO ATIVO — Esc encerra"),
                     WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
@@ -1016,7 +1174,7 @@ pub(crate) mod imp {
                     pid: 0,
                     created: 0,
                 }),
-                monitor_route: None,
+                input_route: None,
                 request: "test".into(),
                 permissions: Capabilities::default(),
                 area: Area {

@@ -22,13 +22,17 @@ export const useRemoteControl = create<RemoteState>()(() => ({
 }));
 /** Minimum interval between pointer moves sent to the server. */
 const MOVE_INTERVAL_MS = 60;
+const ACTION_MAX_AGE_MS = 450;
+const ACTION_QUEUE_LIMIT = 16;
 let revision = 0;
 let sequence = 0;
 let sendingMove = false;
 let sendingAction = false;
 let lastMove = 0;
 /** Latest pointer position not sent yet; only the newest one is ever kept. */
-let pendingMove: { ownerId: string; input: ControlInput } | null = null;
+type PendingInput = { ownerId: string; requestId: string; input: ControlInput };
+let pendingMove: PendingInput | null = null;
+const pendingActions: (PendingInput & { queuedAt: number })[] = [];
 let moveTimer: ReturnType<typeof setTimeout> | null = null;
 
 function command<T = unknown>(body: ControlCommand, callId = useCall.getState().callId): Promise<T> {
@@ -43,10 +47,15 @@ function dropPendingMove() {
   moveTimer = null;
 }
 
+export function clearPendingControlInput() {
+  dropPendingMove();
+  pendingActions.length = 0;
+}
+
 /** Called synchronously at every share replacement, disconnect and call teardown. */
 export function stopRemoteControl(): void {
   revision++;
-  dropPendingMove();
+  clearPendingControlInput();
   const hadControl = useRemoteControl.getState().offered || useRemoteControl.getState().requestId !== null;
   useRemoteControl.setState({ offered: false, dialog: false, requestId: null, shares: [], pausedMs: 0 });
   if (isTauri) void invoke("remote_control_stop").catch(error);
@@ -178,43 +187,53 @@ function post(share: ControlShare, input: ControlInput) {
   return command({ action: "input", request_id: share.request_id as string, sequence: ++sequence, input });
 }
 
-/**
- * Pointer moves: at most one in flight and one every MOVE_INTERVAL_MS; the
- * newest position waits and is sent next, so the pointer always ends where
- * the controller left it. Clicks, scroll and text: one at a time, no queue
- * (dropped while another is in flight). Older sequence numbers are discarded
- * by the server, so a click may overtake a pending move.
- */
 export async function sendControlInput(ownerId: string, input: ControlInput) {
-  if (!activeShare(ownerId)) return;
+  const requestId = activeShare(ownerId)?.request_id;
+  if (!requestId) return;
   if (input.kind === "move") {
-    pendingMove = { ownerId, input };
+    pendingMove = { ownerId, requestId, input };
     flushMove();
     return;
   }
-  const share = activeShare(ownerId);
-  if (!share || sendingAction) return;
+  if (input.kind === "scroll" && sendingAction) return;
+  if (pendingActions.length >= ACTION_QUEUE_LIMIT) return;
+  dropPendingMove();
+  pendingActions.push({ ownerId, requestId, input, queuedAt: performance.now() });
+  await flushActions();
+}
+
+/** Keep clicks and keys in order, but never replay a backlog after a stall. */
+async function flushActions() {
+  if (sendingAction) return;
   sendingAction = true;
-  try { await post(share, input); }
-  catch (e) { stopRemoteControl(); error(e); }
-  finally { sendingAction = false; }
+  try {
+    let next: (typeof pendingActions)[number] | undefined;
+    while ((next = pendingActions.shift())) {
+      const share = activeShare(next.ownerId);
+      if (!share || share.request_id !== next.requestId || performance.now() - next.queuedAt > ACTION_MAX_AGE_MS) continue;
+      try { await post(share, next.input); }
+      catch (e) {
+        if (activeShare(next.ownerId)?.request_id === next.requestId) { stopRemoteControl(); error(e); }
+      }
+    }
+  } finally { sendingAction = false; flushMove(); }
 }
 
 function flushMove() {
-  if (!pendingMove || sendingMove || moveTimer) return;
+  if (!pendingMove || sendingMove || sendingAction || moveTimer) return;
   const wait = MOVE_INTERVAL_MS - (performance.now() - lastMove);
   if (wait > 0) {
     moveTimer = setTimeout(() => { moveTimer = null; flushMove(); }, wait);
     return;
   }
-  const { ownerId, input } = pendingMove;
+  const { ownerId, requestId, input } = pendingMove;
   pendingMove = null;
   const share = activeShare(ownerId);
-  if (!share) return;
+  if (!share || share.request_id !== requestId) return;
   sendingMove = true;
   lastMove = performance.now();
   void post(share, input)
-    .catch((e) => { stopRemoteControl(); error(e); })
+    .catch((e) => { if (activeShare(ownerId)?.request_id === requestId) { stopRemoteControl(); error(e); } })
     .finally(() => { sendingMove = false; flushMove(); });
 }
 

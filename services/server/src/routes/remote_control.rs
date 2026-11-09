@@ -107,12 +107,21 @@ pub struct Capabilities {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ControlPoint {
+    x: f64,
+    y: f64,
+}
+
+#[derive(Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Input {
     Move { x: f64, y: f64 },
     Click { x: f64, y: f64, button: u8 },
+    Drag { from: ControlPoint, to: ControlPoint },
     Scroll { x: f64, y: f64, delta: i32 },
     Text { text: String },
+    Key { key: String },
 }
 
 impl Input {
@@ -121,10 +130,29 @@ impl Input {
             |x: f64, y: f64| x.is_finite() && y.is_finite() && (0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y);
         match self {
             Self::Move { x, y } => p.pointer && point(*x, *y),
-            Self::Click { x, y, button } => p.click && *button == 0 && point(*x, *y),
+            Self::Click { x, y, button } => p.click && *button <= 1 && point(*x, *y),
+            Self::Drag { from, to } => p.click && p.pointer && point(from.x, from.y) && point(to.x, to.y),
             Self::Scroll { x, y, delta } => p.scroll && delta.abs_diff(0) <= 480 && point(*x, *y),
             Self::Text { text } => {
                 p.text && !text.is_empty() && text.len() <= 64 && !text.chars().any(char::is_control)
+            }
+            Self::Key { key } => {
+                p.text
+                    && matches!(
+                        key.as_str(),
+                        "Enter"
+                            | "Tab"
+                            | "Backspace"
+                            | "Delete"
+                            | "ArrowUp"
+                            | "ArrowDown"
+                            | "ArrowLeft"
+                            | "ArrowRight"
+                            | "Home"
+                            | "End"
+                            | "PageUp"
+                            | "PageDown"
+                    )
             }
         }
     }
@@ -487,15 +515,23 @@ mod tests {
             }
             .allowed(all)
         );
-        // Right click opens menus, which are separate windows the guard blocks.
         assert!(
-            !Input::Click {
+            Input::Click {
                 x: 0.5,
                 y: 0.5,
                 button: 1
             }
             .allowed(all)
         );
+        let drag = Input::Drag {
+            from: ControlPoint { x: 0.2, y: 0.2 },
+            to: ControlPoint { x: 0.8, y: 0.8 },
+        };
+        assert!(drag.allowed(all));
+        assert!(!drag.allowed(Capabilities { pointer: false, ..all }));
+        assert!(!drag.allowed(Capabilities { click: false, ..all }));
+        assert!(Input::Key { key: "Enter".into() }.allowed(all));
+        assert!(!Input::Key { key: "Meta".into() }.allowed(all));
         assert!(!Input::Text { text: "cmd\n".into() }.allowed(all));
         assert!(!Input::Text { text: "abc".into() }.allowed(Capabilities::default()));
         assert!(

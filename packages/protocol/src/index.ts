@@ -9,7 +9,7 @@ export interface ControlCapabilities {
   pointer: boolean;
   click: boolean;
   scroll: boolean;
-  /** Printable text only, no shortcuts, clipboard, Enter or held keys. */
+  /** Printable text and editing/navigation keys, without system shortcuts. */
   text: boolean;
 }
 export interface ControlShare {
@@ -21,11 +21,15 @@ export interface ControlShare {
   permissions: ControlCapabilities;
 }
 export interface ControlStatus { can_request: boolean; shares: ControlShare[] }
+export interface ControlPoint { x: number; y: number }
+export const CONTROL_KEYS = ["Enter", "Tab", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"] as const;
 export type ControlInput =
   | { kind: "move"; x: number; y: number }
   | { kind: "click"; x: number; y: number; button: number }
+  | { kind: "drag"; from: ControlPoint; to: ControlPoint }
   | { kind: "scroll"; x: number; y: number; delta: number }
-  | { kind: "text"; text: string };
+  | { kind: "text"; text: string }
+  | { kind: "key"; key: (typeof CONTROL_KEYS)[number] };
 export interface RemoteControlPacket {
   call_id: Id;
   request_id: Id;

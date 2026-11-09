@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import type { ControlCapabilities, ControlShare } from "@nexus/protocol";
-import { NO_CONTROL, offerControl, receiveControlInput, respondControl, sendControlInput, stopRemoteControl, syncRemoteControl, useRemoteControl, videoPoint } from "../call/remoteControl";
+import { CONTROL_KEYS, type ControlCapabilities, type ControlPoint, type ControlShare } from "@nexus/protocol";
+import { clearPendingControlInput, NO_CONTROL, offerControl, receiveControlInput, respondControl, sendControlInput, stopRemoteControl, syncRemoteControl, useRemoteControl, videoPoint } from "../call/remoteControl";
 import { useCall } from "../call/callStore";
 import { Modal } from "../components/Modal";
 import { useNexus, useSession } from "../lib/nexus";
@@ -8,7 +8,7 @@ import { notify } from "../lib/platform";
 import { playSound } from "../lib/sounds";
 
 const labels: Record<keyof ControlCapabilities, string> = {
-  pointer: "Mover o ponteiro livremente", click: "Clicar (botão esquerdo)", scroll: "Rolar a página", text: "Digitar texto (sem atalhos ou Enter)",
+  pointer: "Mover o ponteiro livremente", click: "Clicar com os botões esquerdo e direito", scroll: "Rolar a página", text: "Usar o teclado (texto e teclas de edição)",
 };
 
 export function RemoteControlCenter() {
@@ -132,11 +132,13 @@ export function ConsentDialog({ share, name }: { share: ControlShare; name: stri
       <p><strong>Quem:</strong> {name} · ID: <code>{share.controller_id}</code><br /><strong>Onde:</strong> {monitor
         ? "Aplicativos visíveis na área abaixo, dentro do monitor compartilhado. O controlador pode alternar entre eles com um clique."
         : `Somente a janela compartilhada de ${app ?? "aplicativo"}, na área abaixo.`}</p>
+      {monitor && <p>Deixe os aplicativos que você quer liberar à vista. Se o Nexus estiver cobrindo a tela, minimize-o após aceitar.</p>}
       <fieldset><legend>O que esta pessoa pode fazer (tudo começa bloqueado)</legend>
+        <button type="button" className="btn" onClick={() => setPermissions({ pointer: true, click: true, scroll: true, text: true })}>Selecionar mouse e teclado</button>
         {(Object.keys(labels) as (keyof ControlCapabilities)[]).map((key) => <label key={key}>
           <input type="checkbox" checked={permissions[key]} onChange={(e) => setPermissions({ ...permissions, [key]: e.target.checked })} /> {labels[key]}
         </label>)}
-        <p>Cliques e rolagem posicionam o ponteiro no ponto escolhido, mesmo sem movimento livre. Menus do sistema e caixas de diálogo protegidas ficam sob seu controle local.</p>
+        <p>Para arrastar, libere movimento do ponteiro e cliques. Menus do sistema e caixas de diálogo protegidas ficam sob seu controle local.</p>
       </fieldset>
       <fieldset><legend>Área permitida, em % da imagem compartilhada</legend>
         <p>0, 0, 100, 100 cobre toda a {monitor ? "tela compartilhada" : "janela compartilhada"}. O controle atua na área interna dos aplicativos permitidos. Quem assiste continua vendo toda a transmissão.</p>
@@ -168,16 +170,25 @@ export function RemoteControlSurface({ ownerId, video }: { ownerId: string; vide
   const me = useNexus((s) => s.me?.id);
   const share = useRemoteControl((s) => s.shares.find((x) => x.owner_id === ownerId && x.controller_id === me && x.accepted));
   const [enabled, setEnabled] = useState(false);
-  const [text, setText] = useState("");
   const surface = useRef<HTMLDivElement>(null);
+  const press = useRef<{ id: number; button: number; from: ControlPoint; clientX: number; clientY: number; moved: boolean } | null>(null);
+  const leaveControlMode = () => {
+    press.current = null;
+    clearPendingControlInput();
+    setEnabled(false);
+  };
   useEffect(() => { setEnabled(false); }, [share?.request_id]);
   useEffect(() => {
-    const blur = () => setEnabled(false);
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape") setEnabled(false); };
+    if (!enabled) return;
+    surface.current?.focus({ preventScroll: true });
+    const blur = leaveControlMode;
     window.addEventListener("blur", blur);
-    window.addEventListener("keydown", key);
-    return () => { window.removeEventListener("blur", blur); window.removeEventListener("keydown", key); };
-  }, []);
+    return () => {
+      window.removeEventListener("blur", blur);
+      press.current = null;
+      clearPendingControlInput();
+    };
+  }, [enabled, share?.request_id]);
   // Native wheel listener must be non-passive to prevent scrolling the local stage.
   useEffect(() => {
     const el = surface.current;
@@ -197,18 +208,49 @@ export function RemoteControlSurface({ ownerId, video }: { ownerId: string; vide
     return v && videoPoint(v.getBoundingClientRect(), v.videoWidth, v.videoHeight, e.clientX, e.clientY);
   };
   return <>
-    {enabled && <div ref={surface} className="remote-surface" aria-label="Área de controle remoto"
+    {enabled && <div ref={surface} className="remote-surface" aria-label="Área de controle remoto" tabIndex={0}
       onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
-      onPointerMove={(e) => { const p = point(e); if (p && share.permissions.pointer) void sendControlInput(ownerId, { kind: "move", ...p }); }}
-      onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); const p = point(e); if (p && e.button === 0 && share.permissions.click) void sendControlInput(ownerId, { kind: "click", ...p, button: 0 }); }} />}
+      onBlur={leaveControlMode}
+      onKeyDown={(e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (e.key === "Escape") { leaveControlMode(); return; }
+        if (!share.permissions.text || e.ctrlKey || e.altKey || e.metaKey || e.nativeEvent.isComposing) return;
+        const key = CONTROL_KEYS.find((candidate) => candidate === e.key);
+        if (key) void sendControlInput(ownerId, { kind: "key", key });
+        else if ([...e.key].length === 1 && !/\p{Cc}/u.test(e.key)) void sendControlInput(ownerId, { kind: "text", text: e.key });
+      }}
+      onPointerMove={(e) => {
+        if (press.current) {
+          if (press.current.id === e.pointerId && Math.hypot(e.clientX - press.current.clientX, e.clientY - press.current.clientY) >= 5) {
+            press.current.moved = true;
+          }
+          return;
+        }
+        const p = point(e);
+        if (p && share.permissions.pointer) void sendControlInput(ownerId, { kind: "move", ...p });
+      }}
+      onPointerDown={(e) => {
+        e.preventDefault(); e.stopPropagation();
+        e.currentTarget.focus({ preventScroll: true });
+        const from = point(e);
+        if (!from || !share.permissions.click || (e.button !== 0 && e.button !== 2) || press.current) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        press.current = { id: e.pointerId, button: e.button, from, clientX: e.clientX, clientY: e.clientY, moved: false };
+      }}
+      onPointerUp={(e) => {
+        const start = press.current;
+        if (start?.id !== e.pointerId || start.button !== e.button) return;
+        press.current = null;
+        const to = point(e);
+        if (!to) return;
+        if (!start.moved) void sendControlInput(ownerId, { kind: "click", ...start.from, button: start.button === 0 ? 0 : 1 });
+        else if (start.button === 0 && share.permissions.pointer) void sendControlInput(ownerId, { kind: "drag", from: start.from, to });
+      }}
+      onLostPointerCapture={(e) => { if (press.current?.id === e.pointerId) press.current = null; }} />}
     <div className="remote-controller" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-      <button className="btn" onClick={() => setEnabled(!enabled)}>{enabled ? "Sair do modo de controle (Esc)" : "Entrar no modo de controle"}</button>
-      {enabled && <small>Use o aplicativo em primeiro plano para digitar ou rolar. Aguarde 3 segundos após o dono usar o mouse ou teclado.</small>}
-      {enabled && share.permissions.text && <form onSubmit={(e) => { e.preventDefault(); if (text) { void sendControlInput(ownerId, { kind: "text", text }); setText(""); } }}>
-        <input aria-label="Texto para digitar na janela autorizada" value={text} maxLength={16} onChange={(e) => setText(e.target.value.replace(/[\x00-\x1f\x7f-\x9f]/g, ""))} placeholder="Texto sem atalhos" />
-        <button className="btn" disabled={!text}>Digitar</button>
-      </form>}
+      <button className="btn" onMouseDown={(e) => { if (enabled) e.preventDefault(); }} onClick={() => enabled ? leaveControlMode() : setEnabled(true)}>{enabled ? "Sair do modo de controle (Esc)" : "Entrar no modo de controle"}</button>
+      {enabled && <small>Use o mouse e o teclado diretamente na transmissão. Aguarde 3 segundos após o dono usar o mouse ou teclado.</small>}
     </div>
   </>;
 }
