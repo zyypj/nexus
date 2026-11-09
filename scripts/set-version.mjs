@@ -4,8 +4,7 @@
 //   node scripts/set-version.mjs 0.2.0           # write
 //   node scripts/set-version.mjs 0.2.0 --check   # exit 1 if any file differs (used by CI)
 //
-// Android's versionCode is derived as major*10000 + minor*100 + patch so every
-// release installs over the previous one.
+// Android's versionCode must keep increasing independently of the label.
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +23,10 @@ if (minor > 99 || patch > 99) {
   console.error("minor and patch must be <= 99 (Android versionCode encoding)");
   process.exit(2);
 }
-const versionCode = major * 10000 + minor * 100 + patch;
+const encodedVersion = major * 10000 + minor * 100 + patch;
+// v2.0.5 shipped with code 20005. Starting at v1.0.6, keep Android's
+// installation order increasing even though the visible version moved back.
+const versionCode = encodedVersion + (encodedVersion >= 10_006 ? 10_000 : 0);
 
 /** [file, regex with one capture group for the value, replacement value] */
 const targets = [

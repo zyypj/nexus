@@ -91,4 +91,6 @@ depois exige desinstalar e reinstalar o app.
 `scripts/set-version.mjs` mantém iguais: `services/server/Cargo.toml`,
 `apps/desktop/src-tauri/Cargo.toml`, `tauri.conf.json`, `apps/desktop/package.json`,
 `apps/android/package.json` e `versionName`/`versionCode` do Android
-(`versionCode = major*10000 + minor*100 + patch`).
+(`versionCode = major*10000 + minor*100 + patch`, com acréscimo de `10000` a partir
+da release 1.0.6 para instalar sobre a 2.0.5). Quem já está na 2.0.5 precisa abrir
+o instalador ou APK da 1.0.6 manualmente, pois o atualizador do app compara a versão exibida.
